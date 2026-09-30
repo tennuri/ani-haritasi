@@ -216,6 +216,12 @@ header.top h1 em { font-style: normal; }
 .toast { border: 2px solid var(--accent); }
 /* Leaves fall on the page background only: the canvas sits behind the content layer. */
 .wrap { position: relative; z-index: 1; }
+/* Leaf pile: a strip fixed to the bottom of the screen where falling leaves land and build up. */
+#pile { position: fixed; left: 0; right: 0; bottom: 0; width: 100%; height: 54px; pointer-events: none; z-index: 1100; image-rendering: pixelated; image-rendering: crisp-edges; }
+body { padding-bottom: 54px; }
+.music-fab { bottom: calc(62px + env(safe-area-inset-bottom, 0px)); }
+.music-pop { bottom: calc(126px + env(safe-area-inset-bottom, 0px)); }
+.toast { bottom: calc(70px + env(safe-area-inset-bottom, 0px)); }
 #leaves { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 0; image-rendering: pixelated; image-rendering: crisp-edges; }
 </style>
 
@@ -327,11 +333,14 @@ header.top h1 em { font-style: normal; }
 </div>
 <div class="toast" id="toast" hidden></div>
 <canvas id="leaves" aria-hidden="true"></canvas>
+<canvas id="pile" aria-hidden="true"></canvas>
 <script>
 // Falling pixel-art autumn leaves, drawn on a low-resolution canvas scaled up without smoothing.
 (() => {
   const cv = document.getElementById("leaves"), ctx = cv.getContext("2d");
-  if (!ctx || matchMedia("(prefers-reduced-motion: reduce)").matches) { cv.remove(); return; }
+  const pcv = document.getElementById("pile"), pctx = pcv.getContext("2d");
+  if (!ctx || !pctx) { cv.remove(); pcv.remove(); return; }
+  const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
   const PX = 3; // one art pixel = 3 screen pixels
   const SHAPES = [
     [ // maple
@@ -381,14 +390,46 @@ header.top h1 em { font-style: normal; }
     vy: 0.12 + Math.random() * 0.2, sway: 0.4 + Math.random() * 0.8, phase: Math.random() * 6.28,
     spin: 0.02 + Math.random() * 0.04, set: Math.floor(Math.random() * frames.length),
   });
+
+  // ---- pile ----
+  const PH = 18, GROUND = 2, MAXH = PH - 5; // art pixels: strip height, soil line, tallest the pile may get
+  let heights = [];
+  const soil = () => getComputedStyle(document.documentElement).getPropertyValue("--border").trim() || "#a8835a";
+  const surface = (x) => { let m = 0; for (let i = Math.max(0, x); i < Math.min(W, x + 9); i++) m = Math.max(m, heights[i] || 0); return m; };
+  function settle(sprite, x) {
+    x = Math.max(-4, Math.min(W - 5, Math.round(x)));
+    // A full spot sends the leaf sliding to the lowest nearby spot; a full strip gets swept by a gust.
+    if (surface(x) + 5 > MAXH) {
+      let best = x;
+      for (let k = 0; k < 12; k++) { const c = Math.round(Math.random() * (W - 5)); if (surface(c) < surface(best)) best = c; }
+      x = best;
+      if (surface(x) + 5 > MAXH) { // the whole strip is full: press it down 3 px
+        const img = pctx.getImageData(0, 0, W, PH - GROUND);
+        pctx.clearRect(0, 0, W, PH); pctx.putImageData(img, 0, 3);
+        heights = heights.map((h) => Math.max(0, h - 3));
+      }
+    }
+    const top = PH - GROUND - surface(x) - 9 + 4; // sink 4 px into what is already there
+    pctx.drawImage(sprite, x, top);
+    for (let i = Math.max(0, x + 1); i < Math.min(W, x + 8); i++) heights[i] = Math.max(heights[i] || 0, PH - GROUND - top - 1);
+    drawSoil();
+  }
+  function drawSoil() { pctx.fillStyle = soil(); pctx.fillRect(0, PH - GROUND, W, GROUND); }
+  function seedPile(n) { for (let i = 0; i < n; i++) settle(frames[Math.floor(Math.random() * frames.length)][Math.floor(Math.random() * 4)], Math.random() * W); }
+
   function resize() {
     W = Math.ceil(innerWidth / PX); H = Math.ceil(innerHeight / PX);
     cv.width = W; cv.height = H; ctx.imageSmoothingEnabled = false;
+    pcv.width = W; pcv.height = PH; pctx.imageSmoothingEnabled = false;
+    heights = new Array(W).fill(0); drawSoil(); seedPile(Math.round(W / 3));
     const n = count();
     while (leaves.length < n) leaves.push(spawn(false));
     leaves.length = n;
   }
   addEventListener("resize", resize); resize();
+  matchMedia("(prefers-color-scheme: dark)").addEventListener("change", drawSoil);
+  if (still) { cv.remove(); return; } // reduced motion: keep the pile, skip the falling animation
+
   let last = performance.now();
   function tick(now) {
     const dt = Math.min(50, now - last) / 16.7; last = now;
@@ -397,8 +438,9 @@ header.top h1 em { font-style: normal; }
       l.phase += l.spin * dt;
       l.y += l.vy * dt;
       const x = Math.round(l.x + Math.sin(l.phase) * l.sway * 6);
-      if (l.y > H + 8) Object.assign(l, spawn(true));
       const f = Math.floor(((l.phase % 6.28) + 6.28) % 6.28 / 1.57);
+      // Land on the pile when the leaf reaches its surface at the bottom of the screen.
+      if (l.y + 9 >= H - GROUND - surface(x) + 4) { settle(frames[l.set][f], x); Object.assign(l, spawn(true)); continue; }
       ctx.drawImage(frames[l.set][f], x, Math.round(l.y));
     }
     requestAnimationFrame(tick);
@@ -428,6 +470,7 @@ header.top h1 em { font-style: normal; }
     fab.setAttribute("aria-label", open ? "Müzik balonunu kapat" : "Müzik balonunu aç");
   };
   const jump = () => { if (audio.duration) audio.currentTime = Math.random() * Math.max(0, audio.duration - 5); };
+  audio.volume = 0.3;
   const play = () => audio.play().catch(() => {});
   fab.onclick = () => toggle(pop.hidden);
   document.getElementById("musicClose").onclick = () => toggle(false);
