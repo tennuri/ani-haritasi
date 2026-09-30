@@ -1,0 +1,799 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<style>body{margin:0}[hidden]{display:none!important}img{max-width:100%}</style>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+</head>
+<body>
+<title>Anı Haritası</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Figtree:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: the map of Turkey is the page; a calendar + memory column sits beside it (below it on phones). */
+:root {
+  --bg: #e9eff1;
+  --sea: #d3e0e5;
+  --land: #fbfcfb;
+  --land-hover: #f1e6e8;
+  --border: #9db1b9;
+  --ink: #1b2830;
+  --muted: #56666e;
+  --panel: #ffffff;
+  --line: #d6e0e4;
+  --accent: #b3203a;
+  --accent-soft: #f6dde2;
+  --accent-ink: #ffffff;
+  --display: "Instrument Serif", "Iowan Old Style", Georgia, serif;
+  --body: "Figtree", "Segoe UI", system-ui, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+  --radius: 10px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0e171d; --sea: #11212a; --land: #1f313b; --land-hover: #3a2a33; --border: #3b5663;
+    --ink: #e4ecef; --muted: #93a6ae; --panel: #15222a; --line: #26363f;
+    --accent: #ff5d74; --accent-soft: #3d1d26; --accent-ink: #1a0b0f; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0e171d; --sea: #11212a; --land: #1f313b; --land-hover: #3a2a33; --border: #3b5663;
+  --ink: #e4ecef; --muted: #93a6ae; --panel: #15222a; --line: #26363f;
+  --accent: #ff5d74; --accent-soft: #3d1d26; --accent-ink: #1a0b0f; color-scheme: dark;
+}
+html, body { height: 100%; }
+body { background: var(--bg); color: var(--ink); font-family: var(--body); font-size: 15px; line-height: 1.5; }
+* { box-sizing: border-box; }
+button, input, select, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.wrap { max-width: 1400px; margin: 0 auto; padding-inline: 16px; padding-block: 18px 32px; display: grid; gap: 16px; }
+header.top { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 18px; }
+header.top h1 { font-family: var(--display); font-weight: 400; font-size: clamp(34px, 5vw, 52px); line-height: 1; margin: 0; letter-spacing: -0.01em; }
+header.top h1 em { color: var(--accent); }
+header.top p { margin: 0; color: var(--muted); max-width: 52ch; }
+.store-note { font-size: 13px; color: var(--muted); }
+
+.layout { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 16px; align-items: start; }
+@media (max-width: 900px) { .layout { grid-template-columns: minmax(0, 1fr); } }
+
+/* Map */
+.mapbox { position: relative; background: var(--sea); border-radius: var(--radius); overflow: hidden; border: 1px solid var(--line); }
+#map { display: block; width: 100%; height: auto; aspect-ratio: 1515 / 668; touch-action: none; cursor: crosshair; user-select: none; }
+#map.dragging { cursor: grabbing; }
+.prov { fill: var(--land); stroke: var(--border); stroke-width: 0.8; vector-effect: non-scaling-stroke; transition: fill .12s; }
+.prov:hover { fill: var(--land-hover); }
+.pin { fill: var(--accent); stroke: var(--panel); stroke-width: 1.5; vector-effect: non-scaling-stroke; cursor: pointer; }
+.pin.dim { fill: var(--muted); opacity: .35; }
+.pin.sel { stroke: var(--ink); stroke-width: 2.5; }
+.draft { fill: none; stroke: var(--accent); stroke-width: 2.5; vector-effect: non-scaling-stroke; stroke-dasharray: 4 3; }
+.draft-dot { fill: var(--accent); }
+.map-tools { position: absolute; right: 10px; top: 10px; display: flex; flex-direction: column; gap: 6px; }
+.map-tools button { width: 34px; height: 34px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); font-size: 18px; line-height: 1; }
+.map-hint { position: absolute; left: 10px; bottom: 10px; right: 56px; font-size: 13px; color: var(--muted); pointer-events: none; }
+.map-hint b { color: var(--ink); font-weight: 600; }
+.tip { position: absolute; pointer-events: none; background: var(--ink); color: var(--bg); font-size: 12px; padding: 3px 8px; border-radius: 6px; white-space: nowrap; transform: translate(-50%, -140%); }
+
+.place-pop { position: absolute; transform: translate(-50%, calc(-100% - 14px)); background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; box-shadow: 0 8px 24px rgb(0 0 0 / .14); display: grid; gap: 8px; min-width: 190px; }
+.place-pop .where { font-weight: 600; }
+.place-pop .coords { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+
+@media (max-width: 600px) {
+  .map-hint { position: static; padding: 8px 10px; background: var(--panel); border-top: 1px solid var(--line); }
+  .map-tools { flex-direction: row; top: 6px; right: 6px; }
+  #lmap { height: 60vh; min-height: 320px; }
+  .map-tools button { width: 30px; height: 30px; font-size: 16px; }
+}
+.mapcol { display: grid; gap: 10px; min-width: 0; }
+#lmap { width: 100%; height: min(72vh, 640px); min-height: 380px; background: var(--sea); }
+.search { position: relative; display: flex; gap: 8px; }
+.search input { flex: 1; min-width: 0; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); padding: 8px 12px; }
+.results { position: absolute; z-index: 1100; top: calc(100% + 4px); left: 0; right: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 8px 24px rgb(0 0 0 / .14); padding: 4px; display: grid; font-size: 14px; color: var(--muted); }
+.results:not(:has(button)) { padding: 10px 12px; }
+.results button { text-align: left; border: 0; background: transparent; border-radius: 6px; padding: 7px 10px; display: grid; gap: 1px; min-width: 0; }
+.results button:hover { background: var(--accent-soft); }
+.results button b { color: var(--ink); font-weight: 600; }
+.results button span { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mapbox .leaflet-container { font-family: var(--body); cursor: crosshair; }
+.mapbox .map-tools, .mapbox .place-pop, .mapbox .map-hint { z-index: 1000; }
+.mapbox .leaflet-control-attribution { font-size: 10px; }
+.mapbox:has(#lmap:not([hidden])) .map-hint { background: var(--panel); padding: 4px 8px; border-radius: 6px; right: auto; bottom: 26px; }
+.field input[type="text"] { width: 100%; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); padding: 8px 10px; }
+/* Side column */
+.side { display: grid; gap: 16px; min-width: 0; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; min-width: 0; }
+.eyebrow { font-size: 11px; text-transform: uppercase; letter-spacing: .09em; color: var(--muted); font-weight: 600; }
+
+.cal-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.cal-head .title { flex: 1; font-family: var(--display); font-size: 24px; line-height: 1.1; }
+.cal-head button { border: 1px solid var(--line); background: transparent; border-radius: 8px; width: 32px; height: 32px; }
+.cal-head button:disabled { opacity: .35; cursor: default; }
+.cal-head select { border: 1px solid var(--line); background: var(--panel); border-radius: 8px; padding: 4px 6px; font-family: var(--mono); font-size: 13px; }
+.cal { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 3px; text-align: center; font-variant-numeric: tabular-nums; }
+.cal .dow { font-size: 11px; color: var(--muted); padding-bottom: 4px; }
+.day { position: relative; aspect-ratio: 1; border: 0; background: transparent; border-radius: 8px; font-size: 14px; display: grid; place-items: center; }
+.day:hover:not(:disabled) { background: var(--accent-soft); }
+.day:disabled { color: var(--line); cursor: default; }
+.day.today { box-shadow: inset 0 0 0 1px var(--border); }
+.day.has::after { content: ""; position: absolute; bottom: 5px; width: 5px; height: 5px; border-radius: 50%; background: var(--accent); }
+.day.sel { background: var(--accent); color: var(--accent-ink); font-weight: 600; }
+.day.sel::after { background: var(--accent-ink); }
+
+.modes { display: flex; gap: 4px; margin-top: 12px; background: var(--bg); border-radius: 8px; padding: 3px; }
+.modes button { flex: 1; border: 0; background: transparent; border-radius: 6px; padding: 6px 4px; font-size: 13px; color: var(--muted); }
+.modes button[aria-pressed="true"] { background: var(--panel); color: var(--ink); font-weight: 600; box-shadow: 0 1px 2px rgb(0 0 0 / .08); }
+
+.list-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+.list-head h2 { font-family: var(--display); font-weight: 400; font-size: 24px; margin: 0; line-height: 1.15; text-wrap: balance; }
+.count { font-family: var(--mono); font-size: 12px; color: var(--muted); white-space: nowrap; }
+.mems { display: grid; gap: 10px; max-height: 70vh; overflow-y: auto; }
+.mem { border-top: 1px solid var(--line); padding-top: 10px; display: grid; gap: 6px; }
+.mem:first-child { border-top: 0; padding-top: 0; }
+.mem.sel { background: var(--accent-soft); border-radius: 8px; padding: 10px; border-top-color: transparent; }
+.mem-meta { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; font-family: var(--mono); font-size: 12px; color: var(--muted); }
+.mem-meta button { text-align: left; border: 0; background: none; padding: 0; color: inherit; text-decoration: underline; font: inherit; }
+.chip { font-family: var(--body); font-size: 12px; font-weight: 600; padding: 1px 8px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); }
+.mem p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.mem img { border-radius: 8px; max-height: 320px; width: 100%; object-fit: cover; background: var(--bg); }
+.mem .who { font-size: 12px; color: var(--muted); }
+.empty { color: var(--muted); font-size: 14px; }
+.empty b { color: var(--ink); }
+
+/* Composer */
+.composer { display: grid; gap: 12px; }
+.composer h2 { font-family: var(--display); font-weight: 400; font-size: 28px; margin: 0; line-height: 1.1; }
+.field { display: grid; gap: 4px; }
+.field label, .field .lbl { font-size: 13px; font-weight: 600; }
+.field input[type="date"], .field textarea { width: 100%; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); padding: 8px 10px; }
+.field textarea { min-height: 130px; resize: vertical; }
+.place-line { display: flex; gap: 8px; align-items: center; justify-content: space-between; border: 1px dashed var(--border); border-radius: 8px; padding: 8px 10px; font-size: 14px; }
+.place-line.set { border-style: solid; }
+.moods { display: flex; flex-wrap: wrap; gap: 6px; }
+.moods button { border: 1px solid var(--line); background: transparent; border-radius: 999px; padding: 3px 11px; font-size: 13px; }
+.moods button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.photo-pick { display: flex; gap: 10px; align-items: center; }
+.photo-pick img { width: 64px; height: 64px; object-fit: cover; border-radius: 8px; }
+.photo-pick label.btn { display: inline-block; }
+.hint { font-size: 12px; color: var(--muted); }
+.err { font-size: 13px; color: var(--accent); min-height: 1em; }
+.btn { border: 1px solid var(--line); background: transparent; border-radius: 8px; padding: 7px 12px; font-weight: 600; font-size: 14px; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.btn.primary:disabled { opacity: .5; cursor: default; }
+.btn.small { padding: 4px 10px; font-size: 13px; }
+.row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+.toast { position: fixed; left: 50%; bottom: calc(20px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: var(--ink); color: var(--bg); padding: 8px 14px; border-radius: 8px; font-size: 14px; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <h1>anı <em>haritası</em></h1>
+    <p>Takvimde bir güne git, haritada bir yere dokun, orada yaşadığını ya da hissettiğini isimsiz bırak.</p>
+    <span class="store-note" id="storeNote">Kayıtlar yükleniyor…</span>
+  </header>
+
+  <div class="layout">
+    <div class="mapcol">
+    <form class="search" id="search" hidden role="search">
+      <input type="search" id="q" placeholder="Yer ara: Kadıköy Starbucks, Moda Sahili, Kızılay…" aria-label="Yer ara" autocomplete="off">
+      <button type="submit" class="btn primary">Ara</button>
+      <div class="results" id="results" hidden></div>
+    </form>
+    <div class="mapbox" id="mapbox">
+      <div id="lmap" hidden></div>
+      <svg id="map" viewBox="0 0 1515 668" role="img" aria-label="Türkiye il haritası">
+        <g id="vp">
+          <g id="provs"></g>
+          <g id="draftLayer"></g>
+          <g id="pins"></g>
+        </g>
+      </svg>
+      <div class="map-tools">
+        <button type="button" id="zin" aria-label="Yakınlaştır">+</button>
+        <button type="button" id="zout" aria-label="Uzaklaştır">−</button>
+        <button type="button" id="zreset" aria-label="Haritayı sıfırla">⟲</button>
+      </div>
+      <div class="map-hint" id="mapHint"></div>
+      <div class="tip" id="tip" hidden></div>
+      <div class="place-pop" id="placePop" hidden>
+        <div><div class="where" id="popWhere"></div><div class="coords" id="popCoords"></div></div>
+        <div class="row"><button type="button" class="btn primary small" id="popGo">Buraya anı bırak</button><button type="button" class="btn small" id="popCancel">Vazgeç</button></div>
+      </div>
+    </div>
+    </div>
+
+    <aside class="side">
+      <section class="card" aria-label="Takvim">
+        <div class="cal-head">
+          <button type="button" id="prevM" aria-label="Önceki ay">‹</button>
+          <div class="title" id="calTitle"></div>
+          <select id="yearSel" aria-label="Yıl"></select>
+          <button type="button" id="nextM" aria-label="Sonraki ay">›</button>
+        </div>
+        <div class="cal" id="cal"></div>
+        <div class="modes" role="group" aria-label="Gösterim">
+          <button type="button" data-mode="day" aria-pressed="true">Bu gün</button>
+          <button type="button" data-mode="anniv" aria-pressed="false">Her yıl bu gün</button>
+          <button type="button" data-mode="all" aria-pressed="false">Tümü</button>
+        </div>
+      </section>
+
+      <section class="card" id="listCard">
+        <div class="list-head"><h2 id="listTitle"></h2><span class="count" id="listCount"></span></div>
+        <div class="mems" id="mems"></div>
+      </section>
+
+      <section class="card" id="composeCard" hidden>
+        <form class="composer" id="form" novalidate>
+          <div>
+            <div class="eyebrow">İsimsiz anı</div>
+            <h2>Ne yaşadın, ne hissettin?</h2>
+          </div>
+          <div class="field">
+            <span class="lbl">Yer</span>
+            <div class="place-line" id="placeLine"><span id="placeText">Haritada bir yere dokun.</span></div>
+          </div>
+          <div class="field">
+            <label for="fPlace">Yer tarifi <span class="hint">(isteğe bağlı)</span></label>
+            <input type="text" id="fPlace" maxlength="120" placeholder="Ör. Kadıköy, Bahariye Caddesi, Starbucks önü">
+          </div>
+          <div class="field">
+            <label for="fDate">Tarih</label>
+            <input type="date" id="fDate" required>
+          </div>
+          <div class="field">
+            <label for="fText">Anın</label>
+            <textarea id="fText" maxlength="1200" placeholder="O gün orada…" required></textarea>
+            <span class="hint" id="textCount">0 / 1200</span>
+          </div>
+          <div class="field">
+            <span class="lbl">His <span class="hint">(isteğe bağlı)</span></span>
+            <div class="moods" id="moods"></div>
+          </div>
+          <div class="field">
+            <span class="lbl">Fotoğraf <span class="hint">(isteğe bağlı)</span></span>
+            <div class="photo-pick">
+              <img id="photoPrev" alt="Seçilen fotoğraf" hidden>
+              <label class="btn small" for="fPhoto">Fotoğraf seç</label>
+              <input type="file" id="fPhoto" accept="image/*" class="sr">
+              <button type="button" class="btn small" id="photoClear" hidden>Kaldır</button>
+            </div>
+            <span class="hint">Fotoğraf küçültülür, içindeki konum ve cihaz bilgisi silinir.</span>
+          </div>
+          <p class="hint" id="privacyHint">İsmin ve hesabın kaydedilmez. Pin kamuya açık bir yere konursa daha güvenli olur; evinin ya da işinin önü seni tanıtabilir.</p>
+          <div class="err" id="formErr" role="alert"></div>
+          <div class="row">
+            <button type="submit" class="btn primary" id="submitBtn">Anıyı bırak</button>
+            <button type="button" class="btn" id="cancelBtn">Vazgeç</button>
+          </div>
+        </form>
+      </section>
+    </aside>
+  </div>
+</div>
+<div class="toast" id="toast" hidden></div>
+
+<script>
+const MAP_MODE = "street";
+const PROVINCES=[["Adana","M760.0,565.9L760.2,566.1L760.3,566.3L759.9,566.0L760.0,565.9ZM759.4,565.5L759.6,565.7L759.6,565.8L759.4,565.7L759.4,565.5ZM754.4,564.9L754.6,565.0L754.6,565.1L754.3,565.1L754.4,564.9ZM754.7,564.5L754.8,564.7L754.7,564.7L754.6,564.5L754.7,564.5ZM754.9,564.0L754.9,564.1L754.7,564.1L754.7,564.0L754.9,564.0ZM754.6,562.1L754.8,562.2L754.8,562.3L754.5,562.2L754.6,562.1ZM784.2,559.6L784.3,560.0L784.2,560.0L784.1,559.7L784.2,559.6ZM785.4,559.5L785.4,559.9L785.0,560.0L785.3,559.5L785.4,559.5ZM791.3,558.4L791.1,558.7L790.9,558.6L791.2,558.4L791.3,558.4ZM792.5,557.3L792.9,557.6L792.9,557.7L792.5,557.6L792.5,557.3ZM841.6,438.0L840.5,441.4L840.8,446.7L844.2,454.7L839.5,464.9L828.0,466.3L818.6,472.9L806.9,494.3L806.8,505.8L808.6,509.2L804.6,517.1L806.3,517.8L816.1,512.6L818.5,514.1L820.8,519.1L819.2,527.4L811.9,534.3L809.2,539.6L810.9,542.0L803.7,550.5L800.0,553.4L790.1,553.3L787.0,555.4L785.6,558.6L785.9,556.8L785.2,557.3L784.9,560.0L784.3,558.9L782.1,558.7L781.4,560.0L782.6,559.3L783.7,562.0L787.2,557.8L786.8,556.6L789.1,556.0L788.4,559.2L789.3,557.1L789.1,559.2L793.2,558.7L793.0,557.7L794.5,558.7L788.4,563.2L786.6,569.6L783.5,570.9L782.3,573.5L770.8,571.0L764.6,576.2L763.9,573.2L763.3,572.8L765.2,569.7L760.4,567.3L760.7,565.7L759.3,564.8L758.8,566.1L757.6,564.6L759.4,563.8L757.8,562.2L752.3,560.7L751.0,562.4L752.0,563.8L759.5,569.1L763.5,574.1L738.1,558.7L731.7,557.5L734.4,554.6L741.0,552.9L743.5,548.2L743.7,544.7L742.5,533.0L738.3,525.9L732.5,521.0L730.5,512.4L721.7,492.1L721.8,483.5L727.5,477.5L727.3,472.1L724.0,464.2L724.8,461.5L728.1,459.0L740.3,460.1L744.6,458.1L754.9,446.8L754.4,438.7L757.1,434.6L773.8,438.0L786.6,434.4L791.2,424.0L817.0,411.4L828.5,388.6L839.7,383.6L845.3,383.4L848.8,385.8L854.2,398.4L849.1,404.7L842.1,430.3L841.6,438.0Z"],["Adıyaman","M1022.4,420.8L1038.2,420.8L1049.5,418.3L1054.9,415.5L1057.8,411.5L1061.6,412.7L1065.1,410.9L1068.3,413.3L1065.5,424.7L1054.9,430.8L1048.5,438.6L1047.3,441.6L1047.4,450.5L1045.4,455.1L1036.0,460.7L1036.7,464.1L1035.9,465.8L1019.3,472.2L1008.6,481.1L997.1,481.6L983.6,489.3L976.2,486.9L970.1,480.4L955.6,475.5L946.5,478.8L942.1,478.8L938.3,474.9L929.4,471.8L926.1,468.4L926.5,459.7L939.9,447.5L951.0,446.6L953.5,443.4L958.7,441.7L969.9,443.9L985.5,438.1L981.9,421.1L1002.4,410.0L1013.2,406.9L1020.7,410.1L1020.0,413.1L1015.2,417.6L1022.4,420.8Z"],["Afyon","M455.6,313.5L457.5,318.1L463.2,321.2L481.6,320.7L482.5,334.6L475.9,348.2L473.2,357.4L474.9,362.5L480.2,366.7L447.7,387.2L443.7,386.0L437.2,378.6L434.3,378.8L411.9,401.0L399.5,405.4L389.9,411.4L378.2,422.9L370.4,428.4L367.1,431.9L363.9,439.9L365.2,445.0L362.7,448.6L356.8,452.3L347.2,451.6L337.7,453.9L335.4,448.1L328.0,444.7L323.6,444.7L323.8,431.1L343.8,419.7L351.3,412.4L352.9,407.9L352.6,404.8L343.7,388.7L330.7,384.6L332.0,379.4L339.8,365.6L341.5,359.0L355.5,351.2L358.7,347.9L370.7,321.2L379.6,317.4L383.4,313.6L384.9,309.4L389.0,311.1L391.9,316.9L397.3,322.1L399.4,322.3L409.3,317.1L411.8,312.8L418.6,308.7L426.6,314.1L438.5,308.1L446.2,301.5L451.2,302.7L455.6,313.5Z"],["Ağrı","M1390.8,237.4L1390.6,250.5L1395.5,253.3L1397.2,253.3L1401.3,248.0L1408.4,247.8L1417.6,250.1L1437.7,261.5L1450.1,260.6L1455.8,262.8L1461.1,262.9L1467.3,260.7L1476.3,260.4L1475.8,267.0L1471.6,273.9L1473.0,279.8L1471.4,282.7L1472.0,286.4L1470.6,289.0L1461.2,292.9L1455.2,289.0L1451.3,289.8L1449.5,292.3L1448.5,292.0L1448.9,290.0L1443.1,289.5L1441.6,293.9L1440.3,292.8L1434.8,294.3L1415.7,293.0L1410.2,299.8L1406.1,301.2L1398.4,297.3L1393.2,291.1L1382.8,289.7L1374.9,297.2L1367.9,297.8L1366.2,299.2L1366.6,301.6L1373.0,306.3L1373.0,313.4L1371.6,316.1L1357.8,321.9L1346.6,323.5L1340.6,326.3L1339.0,314.1L1334.5,305.0L1331.1,302.7L1322.5,292.5L1318.5,283.6L1318.3,281.4L1323.0,273.1L1321.6,257.0L1319.2,253.5L1304.5,248.6L1302.1,243.9L1303.9,241.8L1313.9,242.7L1326.3,235.2L1331.9,238.2L1337.5,238.2L1368.0,229.2L1389.0,234.0L1390.8,237.4Z"],["Aksaray","M676.5,345.9L681.0,350.6L676.5,362.2L681.8,368.0L687.6,382.7L691.2,386.1L689.2,393.2L688.8,400.9L691.2,405.7L690.8,413.8L686.2,416.5L681.4,424.4L675.1,423.0L672.0,424.8L670.3,428.6L643.3,434.4L621.3,436.7L615.0,434.9L611.0,429.6L601.5,408.5L601.7,404.5L606.3,395.3L607.6,387.0L612.4,373.8L619.0,366.4L635.8,358.9L647.0,358.5L654.7,351.9L656.4,347.1L651.9,334.6L654.9,329.2L666.6,339.6L674.3,341.8L676.5,345.9Z"],["Amasya","M792.9,142.3L803.6,143.6L812.5,142.4L820.7,145.7L830.1,139.5L831.9,132.0L836.2,132.1L844.9,134.8L845.2,139.2L850.8,143.0L848.4,147.7L851.5,153.0L852.7,159.3L850.3,166.8L841.3,177.6L831.7,184.1L824.6,185.4L819.1,184.0L812.8,179.8L803.9,179.8L793.9,197.4L783.1,202.6L779.4,206.4L778.1,211.0L767.1,210.5L764.1,207.1L765.0,194.2L773.1,183.2L774.4,172.6L771.5,168.5L758.3,163.4L750.0,162.9L744.7,158.7L740.2,145.7L741.9,144.7L742.1,134.9L745.4,126.8L745.5,120.9L776.0,128.8L788.3,137.3L790.0,140.5L792.9,142.3Z"],["Ankara","M597.5,188.6L600.0,194.9L603.6,196.9L608.6,196.5L611.2,191.4L614.7,191.1L639.5,202.2L633.6,209.8L627.7,225.2L630.8,233.4L630.8,238.7L629.1,241.6L616.6,248.6L610.5,254.9L607.7,265.1L607.5,272.5L605.0,283.8L601.0,292.3L605.1,297.0L611.6,298.3L613.2,302.3L611.3,307.4L615.3,313.9L623.9,304.5L629.3,312.9L656.1,326.4L651.9,334.6L656.4,348.7L654.7,351.9L647.3,358.4L635.8,358.9L619.0,366.4L611.0,350.8L611.9,326.2L597.5,302.3L591.8,307.9L587.2,308.1L584.5,314.1L580.0,317.3L574.5,314.6L570.0,314.8L562.8,321.8L559.8,326.7L548.3,325.0L541.6,330.5L528.0,323.2L515.2,326.9L511.6,325.7L496.1,312.6L504.6,307.3L506.0,291.8L504.6,279.5L498.0,268.6L493.4,257.0L493.3,253.2L496.3,249.2L494.1,242.5L489.4,241.7L481.5,231.2L475.4,228.4L441.1,225.6L429.3,228.1L423.1,227.8L421.2,226.4L420.7,220.1L417.6,216.0L423.9,207.7L431.1,202.7L430.3,192.4L432.2,188.4L438.6,190.1L447.9,195.3L471.5,199.1L482.2,195.6L489.1,196.8L497.6,195.4L516.5,187.5L534.1,188.4L542.1,177.0L538.6,164.8L544.1,159.6L556.0,159.7L579.4,170.2L597.5,188.6Z"],["Antalya","M321.7,617.9L322.2,618.4L320.8,619.2L320.9,618.9L321.7,617.9ZM323.5,616.3L323.3,617.0L322.9,616.7L322.9,616.6L323.5,616.3ZM330.7,615.9L331.5,616.8L329.4,617.7L329.5,617.3L330.7,615.9ZM322.9,615.6L323.0,615.7L322.8,615.9L322.8,615.7L322.9,615.6ZM320.5,614.7L320.8,614.8L320.3,614.9L320.3,614.8L320.5,614.7ZM321.1,614.7L321.1,614.8L320.9,614.8L320.9,614.8L321.1,614.7ZM310.2,614.0L310.4,614.3L310.6,614.0L312.2,614.3L309.8,614.9L310.2,614.0ZM320.7,613.7L320.7,613.9L320.6,614.0L320.5,613.8L320.7,613.7ZM320.9,613.7L321.0,613.8L320.9,614.0L320.8,613.8L320.9,613.7ZM318.1,613.3L317.8,615.0L319.2,615.5L315.5,617.9L318.1,613.3ZM339.8,613.1L339.9,613.2L339.7,613.4L339.7,613.1L339.8,613.1ZM337.0,612.9L337.1,613.2L337.0,613.3L336.8,613.1L337.0,612.9ZM336.8,613.1L336.7,612.9L337.0,612.8L337.0,612.9L336.8,613.1ZM314.6,611.3L314.9,611.6L314.9,611.7L314.4,611.5L314.6,611.3ZM342.9,610.8L342.9,611.2L342.8,611.2L342.7,611.1L342.9,610.8ZM381.4,610.8L381.5,612.0L381.3,612.5L381.0,610.9L381.4,610.8ZM343.1,610.2L340.5,613.1L340.5,612.3L337.3,613.1L343.1,610.2ZM381.2,609.7L381.0,610.3L380.7,610.2L380.9,609.8L381.2,609.7ZM306.1,609.5L306.0,610.1L305.8,610.1L305.8,609.7L306.1,609.5ZM341.9,609.3L342.2,609.6L342.1,609.9L341.9,609.7L341.9,609.3ZM342.5,608.7L342.1,609.3L341.5,609.1L341.7,608.8L342.5,608.7ZM300.4,608.2L299.3,609.0L298.9,609.1L299.0,608.6L300.4,608.2ZM301.1,607.5L301.0,608.0L300.6,607.9L300.7,607.6L301.1,607.5ZM386.5,605.9L387.1,606.8L387.0,607.0L386.2,606.3L386.5,605.9ZM360.9,603.5L360.8,603.6L360.6,603.5L360.6,603.5L360.9,603.5ZM392.7,583.9L392.8,584.3L392.2,584.3L392.5,583.9L392.7,583.9ZM479.0,565.2L479.1,565.4L478.8,565.3L478.8,565.2L479.0,565.2ZM395.5,549.6L395.6,549.7L395.6,549.9L395.4,549.8L395.5,549.6ZM462.4,495.6L484.0,497.2L493.2,501.2L523.2,530.0L527.8,544.9L538.3,547.9L541.7,554.9L540.6,562.6L544.3,573.9L548.2,579.2L556.3,585.4L554.6,591.6L555.4,601.7L550.2,619.0L546.7,620.8L543.1,619.1L528.1,606.6L526.5,601.1L521.9,596.4L518.0,588.3L507.4,576.2L505.6,575.7L505.2,577.0L504.0,577.3L502.7,574.4L487.6,569.6L485.4,566.2L479.7,565.6L471.0,558.8L457.4,553.6L457.5,551.9L453.0,549.1L427.9,544.2L408.6,545.5L404.1,541.5L398.1,544.9L394.4,550.5L394.1,562.5L392.8,565.4L393.2,568.8L395.7,571.1L393.1,575.7L393.7,576.7L391.8,577.8L389.1,583.1L389.3,586.0L387.1,586.6L387.9,587.8L386.8,590.1L390.9,596.6L386.0,598.6L386.1,600.1L387.7,600.1L387.6,602.1L381.2,609.1L381.4,602.5L378.5,603.1L371.6,598.5L365.3,598.5L361.3,599.9L361.5,602.8L360.5,602.2L358.8,605.3L354.5,604.0L348.3,608.6L343.7,606.6L341.2,608.8L340.9,610.6L337.7,610.4L336.4,611.1L338.1,610.7L334.2,613.5L336.5,613.1L333.6,615.7L331.1,616.0L332.9,614.2L328.2,613.7L325.1,617.0L324.7,614.7L322.9,615.3L321.0,613.0L321.9,611.6L322.5,612.7L322.1,610.4L317.4,611.4L321.0,609.5L307.7,607.9L306.3,609.0L307.4,607.4L304.0,607.6L303.4,605.6L304.4,603.9L302.5,603.6L300.6,603.7L301.1,605.1L299.4,607.0L296.4,605.3L291.9,600.0L295.2,598.1L297.5,589.8L297.4,585.8L316.6,568.5L319.0,552.1L324.3,542.5L325.2,538.1L330.5,536.5L334.9,530.9L337.9,517.8L343.5,511.2L353.4,506.2L374.2,499.3L377.8,500.0L380.3,505.7L384.2,507.6L408.0,506.4L412.3,507.5L418.3,493.8L422.5,492.6L427.2,495.7L441.4,491.0L446.0,487.8L452.6,487.6L456.5,493.0L462.4,495.6Z"],["Ardahan","M1341.6,71.6L1347.3,71.7L1346.1,76.4L1344.0,78.4L1345.2,80.7L1348.5,82.7L1349.6,80.1L1351.9,79.6L1352.6,81.9L1357.6,84.8L1361.9,92.2L1367.9,94.5L1370.1,98.2L1375.7,100.0L1369.6,104.6L1374.9,104.8L1378.0,110.7L1377.6,112.4L1381.9,111.8L1380.5,114.5L1380.4,121.0L1377.6,126.9L1373.6,129.7L1365.6,131.4L1353.4,137.2L1350.3,144.1L1349.9,153.0L1347.3,158.6L1337.0,161.9L1329.8,166.0L1324.9,165.9L1320.5,157.9L1311.7,146.6L1308.2,137.5L1308.0,131.7L1313.2,121.5L1320.3,114.4L1325.6,111.4L1327.6,107.4L1323.6,99.9L1319.0,86.0L1322.7,86.0L1322.4,82.1L1326.5,78.9L1327.4,73.4L1329.1,71.6L1337.3,70.2L1341.6,71.6Z"],["Artvin","M1250.4,78.7L1255.5,81.6L1259.7,80.2L1260.2,82.5L1265.3,83.6L1268.5,86.5L1278.8,77.5L1286.0,80.5L1289.1,78.8L1296.6,78.5L1298.1,80.6L1304.2,80.5L1308.2,82.9L1314.0,83.3L1319.0,86.0L1323.6,99.9L1327.6,107.4L1325.6,111.4L1320.3,114.4L1313.2,121.5L1308.0,131.7L1303.5,133.5L1290.0,133.6L1283.3,136.9L1280.2,144.4L1274.8,165.9L1268.6,168.2L1260.1,163.9L1255.0,163.8L1237.9,173.7L1232.8,172.1L1231.0,165.0L1235.4,155.5L1234.5,152.8L1220.0,152.0L1214.1,149.2L1230.8,126.9L1236.2,123.5L1237.5,120.7L1236.4,118.3L1233.2,118.0L1228.4,114.5L1224.4,109.1L1223.8,104.4L1221.0,99.7L1225.7,95.5L1236.5,91.3L1241.4,83.8L1245.1,81.7L1247.2,77.4L1250.4,78.7Z"],["Aydın","M142.2,496.9L142.5,497.0L142.3,497.8L141.9,497.5L142.2,496.9ZM148.6,488.7L148.5,489.1L148.3,489.1L148.3,488.8L148.6,488.7ZM130.7,473.7L130.8,473.9L130.7,474.0L130.6,473.9L130.7,473.7ZM127.5,468.6L127.6,469.4L129.0,471.3L127.4,469.3L127.5,468.6ZM117.0,464.7L116.9,465.1L116.6,465.1L116.7,464.8L117.0,464.7ZM117.7,464.5L117.7,464.8L117.3,464.7L117.4,464.6L117.7,464.5ZM118.0,460.7L118.0,461.0L117.8,460.9L117.8,460.8L118.0,460.7ZM257.7,426.3L261.9,431.7L255.9,439.4L253.7,445.7L260.3,453.7L262.6,460.8L251.8,470.0L242.0,468.9L238.9,470.8L237.1,472.9L237.6,475.6L241.2,482.2L230.1,480.3L217.2,471.3L211.4,473.8L205.9,482.5L185.3,484.3L170.9,480.3L155.9,472.5L151.2,479.4L148.8,488.4L145.2,490.0L144.5,492.8L142.2,492.2L142.3,495.7L138.8,494.4L136.3,496.4L131.5,494.6L133.5,490.8L132.8,490.1L134.5,489.4L133.6,488.0L134.3,482.8L134.1,481.2L130.7,482.6L132.3,481.0L132.2,478.4L131.7,476.7L131.3,480.9L130.6,481.7L131.5,475.4L129.6,476.4L129.0,471.5L130.2,473.8L129.9,474.1L129.9,475.1L130.1,475.2L133.5,470.9L126.2,466.9L116.8,464.1L119.0,461.0L124.3,462.0L134.4,457.9L137.3,451.4L137.4,448.4L134.9,446.1L135.3,444.0L137.0,443.4L137.2,440.8L144.1,440.9L150.9,438.4L155.0,435.6L157.3,431.8L172.5,431.4L176.9,432.8L188.3,430.5L189.5,428.2L190.7,429.3L199.9,427.1L213.6,428.1L239.3,418.9L248.4,418.9L250.2,420.1L249.6,422.2L257.7,426.3Z"],["Balıkesir","M85.4,299.7L85.7,301.7L83.7,302.3L84.8,299.8L85.4,299.7ZM80.0,297.9L79.8,298.0L79.6,297.9L80.1,297.8L80.0,297.9ZM90.1,297.5L90.1,297.7L89.9,297.6L89.9,297.5L90.1,297.5ZM80.8,296.8L81.1,297.5L80.1,297.5L80.2,296.8L80.8,296.8ZM86.0,295.7L86.5,296.7L85.1,296.4L85.6,295.7L86.0,295.7ZM83.7,295.5L83.9,296.1L83.4,296.7L83.5,295.8L83.7,295.5ZM92.9,295.0L93.0,295.7L92.0,295.5L92.0,295.3L92.9,295.0ZM85.1,295.0L85.6,295.6L84.4,295.7L84.4,295.1L85.1,295.0ZM91.1,294.5L91.0,294.8L90.5,294.8L90.6,294.7L91.1,294.5ZM93.0,292.8L93.2,293.1L92.9,293.3L92.8,292.8L93.0,292.8ZM95.4,292.1L95.4,292.3L95.1,292.3L95.1,292.2L95.4,292.1ZM98.6,292.0L98.6,292.5L97.9,292.7L98.0,292.4L98.6,292.0ZM93.9,291.7L94.0,292.6L93.5,292.6L93.5,292.0L93.9,291.7ZM83.3,291.5L83.6,291.9L83.1,292.2L83.0,291.6L83.3,291.5ZM86.6,290.4L90.9,291.0L87.3,293.0L92.5,296.7L87.2,297.3L86.1,294.8L87.3,294.3L86.8,292.0L85.4,291.4L86.6,290.4ZM84.7,290.3L85.7,290.5L84.6,293.2L83.6,291.0L84.7,290.3ZM94.2,289.0L94.2,289.4L93.7,289.4L93.8,289.2L94.2,289.0ZM178.0,192.2L177.8,192.6L177.3,192.7L177.3,192.4L178.0,192.2ZM201.4,184.5L201.6,185.0L201.0,184.8L201.3,184.5L201.4,184.5ZM199.5,183.7L200.1,183.9L200.5,184.8L199.2,184.2L199.5,183.7ZM168.1,183.3L168.4,185.4L167.5,185.5L167.1,184.7L168.1,183.3ZM202.0,183.1L202.5,183.1L202.5,183.2L201.9,183.4L202.0,183.1ZM160.6,183.0L160.6,183.3L160.4,183.5L160.2,183.2L160.6,183.0ZM164.9,178.9L165.0,180.2L167.2,180.7L165.7,182.8L167.1,184.8L161.5,183.7L161.9,181.7L163.8,181.8L163.1,179.1L164.9,178.9ZM171.7,177.4L171.8,177.5L171.8,177.7L171.6,177.5L171.7,177.4ZM161.9,177.2L162.1,179.4L161.7,180.5L161.1,180.2L161.9,177.2ZM175.1,177.2L177.0,177.4L177.6,179.4L178.3,178.1L184.2,178.3L196.8,181.9L194.8,186.0L186.3,191.0L190.8,194.7L199.0,191.8L211.0,190.2L205.1,198.7L203.9,209.0L203.9,218.6L205.0,222.1L210.7,226.9L217.8,243.1L220.5,243.6L234.8,253.4L246.4,254.4L255.5,267.5L265.0,267.7L267.9,269.4L269.1,271.1L266.9,274.9L267.4,278.0L262.9,293.3L255.9,301.6L245.7,306.6L245.7,313.6L241.1,312.0L230.6,317.6L207.2,325.7L203.0,323.7L198.7,312.8L194.1,307.9L186.2,306.4L185.1,303.0L187.8,297.1L186.2,294.3L185.1,295.4L178.1,294.3L169.4,295.3L164.2,294.0L156.7,288.6L148.3,291.8L130.3,287.9L113.3,304.1L99.9,312.8L96.3,310.0L94.7,304.1L86.2,302.8L87.5,298.8L89.4,297.7L89.9,299.6L87.9,300.3L91.0,302.1L90.4,299.5L92.4,298.7L93.4,295.9L101.5,290.8L100.8,286.8L105.3,286.0L105.6,282.3L111.2,281.5L113.0,274.8L110.6,271.6L107.3,271.5L104.0,274.2L99.1,272.9L90.4,274.2L90.7,264.9L92.4,260.2L96.2,258.1L104.5,259.0L115.0,251.8L123.7,249.0L128.8,249.0L137.1,252.9L149.5,247.0L153.3,241.2L154.9,236.0L154.5,233.6L151.6,231.0L155.9,218.0L153.3,209.9L161.3,202.9L162.2,198.2L165.8,197.3L167.8,199.3L175.7,199.4L185.0,192.6L180.6,190.0L178.4,191.6L177.4,189.1L174.5,187.0L175.0,185.1L169.9,182.8L169.8,179.7L175.1,177.2ZM156.8,176.2L159.5,177.9L157.3,180.0L158.3,181.2L154.6,183.2L153.7,180.6L156.8,176.2ZM155.6,174.6L155.9,175.2L152.7,176.1L152.9,175.2L155.6,174.6ZM175.6,166.7L175.5,166.9L175.4,166.8L175.4,166.7L175.6,166.7ZM154.3,165.3L154.6,165.4L154.5,166.3L153.8,165.8L154.3,165.3ZM169.3,163.6L169.5,163.8L169.2,164.2L169.1,163.9L169.3,163.6ZM166.0,163.2L174.4,166.7L163.9,172.6L157.7,170.3L158.0,165.3L166.0,163.2Z"],["Bartın","M535.4,54.5L535.4,54.8L535.4,54.9L535.2,54.6L535.4,54.5ZM558.3,46.6L564.3,56.8L569.4,70.4L577.1,74.6L569.1,78.7L566.6,77.4L563.9,81.1L559.4,83.6L554.2,94.4L538.4,104.6L532.7,106.2L528.9,99.4L507.1,75.1L507.4,72.5L510.0,73.0L509.2,71.8L516.7,69.3L519.1,66.8L518.6,65.9L522.9,62.9L522.6,61.4L527.2,58.0L531.6,57.7L534.8,54.6L537.4,56.0L543.9,49.8L549.7,48.9L550.2,47.3L558.3,46.6Z"],["Batman","M1250.1,375.8L1253.7,379.2L1255.9,387.3L1257.4,395.1L1257.3,409.3L1254.8,419.8L1251.7,426.2L1242.0,427.9L1241.9,431.4L1238.2,434.4L1236.6,438.4L1244.9,444.2L1261.4,444.5L1261.9,447.4L1259.0,452.2L1263.2,455.7L1269.8,453.6L1272.1,454.1L1272.5,456.0L1257.9,462.4L1249.1,472.3L1239.2,474.6L1219.3,474.3L1208.6,458.1L1208.6,456.0L1212.3,453.0L1213.3,449.5L1208.6,447.5L1207.2,444.0L1212.8,438.4L1221.0,419.4L1222.4,412.4L1221.3,408.4L1221.3,396.7L1222.7,390.8L1224.9,386.3L1231.9,382.8L1237.3,382.3L1238.3,380.3L1237.0,377.8L1238.0,376.9L1250.1,375.8Z"],["Bayburt","M1165.9,177.5L1167.8,181.8L1170.6,199.8L1175.9,205.3L1188.1,207.2L1188.9,209.7L1186.2,214.6L1177.1,218.7L1164.0,227.5L1156.0,227.6L1135.5,223.0L1117.5,229.2L1110.1,236.9L1103.9,232.5L1102.8,228.6L1106.7,222.3L1111.5,218.4L1112.7,215.0L1113.1,205.0L1115.6,197.4L1117.8,195.3L1126.0,193.1L1130.4,188.0L1134.1,178.8L1143.2,180.0L1164.4,176.5L1165.9,177.5Z"],["Bilecik","M360.4,193.2L373.3,189.7L385.9,191.1L398.2,196.5L406.2,212.8L394.1,215.3L390.4,229.3L385.8,234.9L377.4,236.3L369.0,244.5L359.4,243.2L354.3,245.6L349.7,252.8L349.9,257.1L353.2,260.7L346.0,261.8L328.2,255.9L325.4,247.5L325.9,242.0L324.6,239.4L331.9,239.3L333.3,237.0L333.3,233.2L328.2,229.8L325.5,223.7L328.8,210.9L334.1,206.2L336.6,201.5L334.6,195.5L334.6,189.0L337.2,182.7L341.3,178.5L345.2,176.8L348.3,183.4L360.4,193.2Z"],["Bingöl","M1200.1,278.5L1206.9,283.4L1214.8,284.1L1221.6,294.5L1219.1,296.8L1217.9,301.1L1220.5,313.6L1223.0,314.6L1225.9,318.9L1225.9,327.0L1216.7,339.5L1225.3,357.4L1197.6,370.8L1167.7,368.8L1165.6,370.7L1163.8,378.9L1161.4,382.2L1149.6,382.5L1150.0,375.0L1145.5,369.2L1145.6,365.4L1149.2,357.3L1154.6,357.5L1156.9,349.3L1154.3,343.8L1151.8,343.0L1149.1,335.6L1149.0,325.9L1157.8,314.4L1157.0,310.4L1154.4,307.4L1127.6,321.0L1130.1,316.1L1129.2,310.1L1131.9,303.2L1134.5,298.6L1142.6,301.1L1157.2,291.7L1152.9,287.3L1167.0,279.6L1169.1,275.2L1180.0,278.8L1193.9,273.4L1197.5,274.9L1200.1,278.5Z"],["Bitlis","M1370.6,337.2L1375.4,342.0L1375.3,347.2L1373.9,350.2L1364.4,357.7L1357.2,368.2L1355.8,368.6L1351.4,377.5L1339.0,384.2L1335.7,387.7L1339.7,402.3L1338.1,409.4L1341.0,412.5L1344.4,413.2L1342.7,417.3L1347.2,423.4L1339.7,428.7L1321.0,419.0L1311.2,416.2L1305.5,411.2L1298.4,408.3L1289.7,409.9L1284.3,417.1L1280.7,414.4L1275.8,415.2L1257.0,410.5L1257.4,394.1L1253.8,379.5L1250.6,376.0L1245.2,375.8L1248.9,371.5L1252.9,370.0L1271.7,371.0L1277.7,368.2L1286.7,360.5L1286.5,357.1L1282.2,351.1L1282.5,348.5L1292.9,347.6L1293.2,343.0L1306.4,336.4L1320.3,337.3L1325.9,335.7L1335.5,337.3L1342.1,336.0L1340.6,326.3L1346.6,323.5L1361.8,320.5L1360.4,331.4L1370.6,337.2Z"],["Bolu","M498.3,128.1L527.3,129.2L527.1,135.9L544.6,143.8L547.1,149.1L545.7,157.1L538.6,164.8L542.1,177.0L535.3,187.6L530.3,188.7L516.5,187.5L497.6,195.4L489.1,196.8L482.2,195.6L471.5,199.1L447.9,195.3L438.6,190.1L432.2,188.4L430.3,192.4L431.1,202.7L423.9,207.7L417.6,216.0L406.2,212.8L399.2,199.2L398.2,196.5L400.0,191.5L396.0,185.5L402.3,178.2L414.2,178.0L420.5,176.1L423.3,172.7L423.9,161.8L429.5,164.0L442.3,161.8L448.0,165.3L455.5,163.9L460.6,159.9L461.0,149.5L463.9,142.9L474.4,141.9L481.1,138.5L484.9,135.2L486.3,131.2L486.3,128.4L484.7,125.7L498.3,128.1Z"],["Burdur","M391.7,459.6L400.3,459.9L404.3,462.2L409.2,477.4L420.3,490.2L420.9,492.8L417.3,494.6L412.3,507.5L408.0,506.4L384.2,507.6L380.3,505.7L377.4,499.7L372.1,499.4L353.4,506.2L340.2,513.9L337.7,518.3L336.1,528.6L329.3,537.3L325.2,538.1L320.5,530.2L314.5,527.2L311.8,527.6L306.7,533.6L302.7,534.8L303.7,529.0L302.1,522.4L302.7,514.8L306.3,506.4L312.7,498.5L317.0,489.0L317.0,486.5L313.3,483.7L312.9,470.9L339.2,452.9L349.3,451.9L352.4,458.1L356.0,459.7L375.3,446.0L378.5,447.0L383.8,454.6L391.7,459.6Z"],["Bursa","M236.2,173.3L237.4,173.5L236.0,175.1L236.7,177.4L235.1,178.9L234.5,173.5L236.2,173.3ZM344.2,174.1L345.2,176.8L338.6,181.0L334.9,187.4L334.6,195.5L336.8,201.0L334.1,206.2L328.8,210.9L325.5,223.7L328.2,229.8L333.3,233.2L332.8,238.1L331.1,239.7L319.8,240.9L313.9,240.7L307.1,237.5L304.0,239.0L298.1,252.4L292.8,260.7L291.2,271.9L289.4,274.5L279.2,275.6L271.8,273.3L265.0,267.7L257.1,268.3L254.3,266.5L246.4,254.4L234.8,253.4L220.5,243.6L217.8,243.1L210.7,226.9L205.0,222.1L203.9,218.6L205.2,198.1L211.0,190.2L234.0,190.5L232.4,192.0L231.8,193.7L234.4,190.5L244.9,194.1L256.2,190.6L262.0,191.5L266.2,194.4L270.5,194.4L276.2,193.7L278.7,188.2L284.0,187.5L279.1,182.5L274.5,182.1L272.8,180.3L275.5,174.1L292.8,174.4L300.2,172.0L307.2,174.5L315.9,174.5L333.1,168.7L343.9,172.2L344.2,174.1Z"],["Çanakkale","M43.0,245.3L44.7,246.3L45.4,249.9L43.7,251.3L35.9,246.3L43.0,245.3ZM45.6,238.0L45.6,238.2L45.2,238.2L45.4,238.0L45.6,238.0ZM43.0,236.8L43.0,237.0L42.8,237.0L42.8,236.8L43.0,236.8ZM43.6,235.9L44.5,236.4L45.0,236.2L45.1,236.3L44.1,236.9L43.6,235.9ZM34.6,205.9L37.1,208.4L36.2,215.0L38.0,215.6L39.9,213.6L38.4,216.8L18.6,220.9L12.8,217.6L13.3,214.6L22.2,209.0L26.6,208.9L34.6,205.9ZM94.3,191.1L94.5,191.9L93.7,191.7L93.8,191.4L94.3,191.1ZM138.8,182.5L142.5,188.9L140.3,189.9L140.6,192.8L154.9,199.3L161.7,198.8L161.3,202.9L153.0,210.5L156.0,217.4L151.6,231.0L154.5,233.6L154.9,236.0L153.3,241.2L149.5,247.0L137.1,252.9L128.8,249.0L123.7,249.0L115.0,251.8L104.5,259.0L95.1,258.4L92.4,260.2L90.9,264.0L90.9,274.2L90.0,274.8L74.6,277.9L68.1,280.3L67.5,282.0L59.4,281.7L57.6,283.6L56.7,282.5L49.1,284.7L43.8,282.2L47.1,271.5L49.9,268.7L51.6,264.1L49.7,254.3L51.2,252.3L51.6,248.2L49.5,245.9L51.2,241.7L50.5,238.4L52.6,231.1L54.3,229.0L59.8,229.9L64.8,227.2L67.3,220.0L70.7,218.1L69.7,215.4L70.6,214.5L70.2,210.3L73.8,210.6L79.6,208.2L83.4,202.0L86.0,201.9L92.7,194.7L92.5,193.4L97.3,189.7L109.8,189.3L112.9,191.6L119.2,191.0L123.6,185.8L128.6,184.8L132.5,186.6L138.8,182.5ZM119.9,155.2L118.9,170.9L116.3,174.4L108.8,176.4L93.2,184.6L93.3,188.0L88.7,189.7L87.9,193.8L84.8,197.9L78.5,201.2L71.9,207.9L66.7,209.7L68.5,215.7L56.3,225.0L52.1,225.4L60.5,208.4L60.5,204.6L56.7,201.1L58.0,200.0L57.7,198.6L55.8,198.0L62.8,193.4L64.6,193.6L74.3,185.8L87.5,179.2L93.5,179.0L96.9,174.1L97.0,175.4L98.7,175.5L103.7,171.9L102.5,165.3L97.9,160.9L99.8,155.4L105.6,155.5L115.6,149.8L118.5,150.9L119.9,155.2Z"],["Çankırı","M643.9,133.8L647.3,138.4L663.4,144.9L665.0,149.9L664.1,161.9L668.6,178.0L673.0,186.8L672.8,190.1L668.9,197.4L657.9,203.9L638.7,202.0L614.7,191.1L611.2,191.4L608.6,196.5L603.6,196.9L600.0,194.9L596.2,186.5L579.9,170.4L556.0,159.7L544.1,159.6L547.1,150.2L545.5,146.1L550.8,140.8L558.9,134.2L585.0,128.4L588.9,121.1L597.3,122.6L605.9,127.5L610.1,132.5L614.5,134.1L647.7,120.4L649.5,122.2L649.7,124.7L644.3,130.4L643.9,133.8Z"],["Çorum","M724.2,109.8L726.8,110.2L729.9,104.6L733.7,109.8L736.7,121.7L739.7,122.5L745.5,120.9L745.4,126.8L742.1,134.9L741.9,144.7L740.2,145.7L745.6,160.4L750.8,163.2L758.3,163.4L765.2,165.9L771.5,168.5L774.2,172.2L773.1,183.2L765.0,194.2L764.1,207.1L760.7,208.6L751.3,208.7L752.2,220.9L742.7,227.0L732.0,224.9L721.9,230.8L691.2,230.8L685.5,235.2L672.5,236.6L664.8,239.5L665.7,234.5L676.1,226.0L672.2,222.7L668.8,216.9L666.9,207.7L657.9,203.9L668.9,197.4L673.1,188.8L664.1,161.9L665.0,149.9L663.4,144.9L682.2,137.3L682.3,132.4L678.1,129.1L676.9,126.0L683.2,113.3L694.1,99.5L696.8,99.4L701.1,102.3L724.2,109.8Z"],["Denizli","M338.4,387.4L344.2,389.3L353.0,406.6L351.3,412.4L343.8,419.7L323.8,431.1L323.6,444.7L328.0,444.7L335.4,448.1L337.7,453.9L312.9,470.9L313.3,483.7L317.0,486.5L317.0,489.0L312.7,498.5L304.0,511.0L302.1,522.4L298.0,526.4L297.5,534.4L292.4,541.9L286.8,541.3L278.4,530.8L277.9,525.2L276.4,522.5L276.9,519.6L274.6,515.6L266.4,509.3L255.4,505.6L252.1,494.5L242.0,490.7L241.8,482.7L237.1,472.9L241.4,469.0L251.8,470.0L262.6,460.3L260.3,453.7L253.7,445.7L255.9,439.4L261.6,430.7L256.4,425.2L249.1,421.2L255.6,415.8L256.6,408.1L265.9,403.5L289.2,410.4L305.1,403.8L314.3,410.5L316.8,410.8L318.2,402.8L322.4,395.6L325.1,386.9L330.7,384.6L338.4,387.4Z"],["Diyarbakır","M1235.1,370.6L1234.2,375.3L1238.3,380.7L1237.1,382.4L1231.9,382.8L1223.8,387.4L1221.3,396.7L1221.3,408.4L1222.4,412.4L1221.0,419.4L1212.8,438.4L1207.2,443.7L1208.6,447.5L1213.3,449.5L1212.0,453.5L1208.6,456.0L1189.2,458.3L1185.3,457.0L1182.5,453.8L1177.2,453.4L1173.6,451.2L1169.1,456.7L1168.4,462.5L1167.0,465.0L1159.4,465.4L1148.1,473.2L1134.2,471.1L1128.2,474.4L1117.6,474.4L1116.1,469.6L1116.0,455.4L1113.1,451.2L1108.3,446.7L1100.6,446.0L1081.3,430.5L1068.9,430.1L1063.0,426.9L1066.8,422.2L1068.1,412.8L1065.1,410.9L1061.6,412.7L1057.8,411.5L1060.2,402.7L1058.4,396.2L1069.9,393.2L1075.5,396.2L1080.1,396.5L1093.6,393.0L1106.2,392.9L1112.2,387.5L1116.1,380.2L1131.1,382.5L1160.9,382.4L1163.1,380.7L1165.5,371.0L1167.7,368.8L1197.6,370.8L1225.3,357.4L1233.5,365.7L1235.1,370.6Z"],["Düzce","M453.8,116.4L461.5,124.4L484.7,125.7L486.3,128.4L486.3,131.2L484.6,135.6L479.4,139.5L474.4,141.9L463.9,142.9L461.0,149.5L460.6,159.9L455.5,163.9L448.0,165.3L442.3,161.8L429.5,164.0L423.9,161.8L426.4,157.9L419.1,152.1L417.6,147.1L420.2,140.3L428.1,133.9L430.1,129.4L425.6,122.7L444.3,120.2L453.8,116.4Z"],["Edirne","M96.3,168.1L96.4,168.7L95.7,168.5L95.8,168.3L96.3,168.1ZM97.7,167.8L97.8,168.0L97.5,168.1L97.5,167.8L97.7,167.8ZM41.2,154.6L41.2,154.8L41.3,155.0L41.2,154.8L41.2,154.6ZM39.7,151.0L40.6,152.1L40.9,152.8L41.0,153.1L39.7,151.0ZM114.5,32.8L115.7,38.2L113.0,56.3L109.5,62.0L110.5,64.4L116.4,67.7L116.6,74.4L110.3,83.0L107.2,91.2L108.7,95.7L108.5,100.6L111.8,106.3L111.8,110.5L108.2,116.1L98.9,119.9L96.7,124.0L96.7,126.5L99.7,130.0L95.6,139.7L95.5,148.6L99.8,155.4L97.9,160.9L100.5,164.3L86.3,166.3L80.3,170.9L74.7,168.3L71.0,170.2L67.9,169.2L62.5,171.0L48.5,170.9L45.7,169.2L43.6,166.2L43.7,161.7L41.3,156.6L48.6,154.5L51.1,148.5L55.7,146.3L54.5,144.8L56.6,140.2L58.3,140.9L59.4,137.8L61.4,140.0L62.3,139.0L61.3,136.5L66.3,134.5L64.0,131.6L66.2,129.9L66.8,127.2L63.7,123.6L64.3,118.9L62.9,118.2L64.6,115.4L62.7,112.5L64.6,104.6L70.8,104.1L79.9,95.3L84.9,97.1L88.4,94.4L88.1,87.2L85.9,80.9L85.2,68.5L80.5,67.3L77.5,63.1L67.5,58.6L65.3,54.1L68.2,46.7L81.3,45.8L84.1,42.2L84.4,39.5L83.1,37.2L87.3,32.3L97.2,34.5L99.6,32.2L104.0,33.1L106.1,31.3L114.5,29.4L114.5,32.8Z"],["Elazığ","M1154.1,319.3L1149.3,324.4L1149.0,335.0L1151.8,343.0L1154.6,344.2L1156.9,349.9L1154.6,357.5L1148.9,357.6L1145.4,366.8L1145.5,369.2L1149.9,374.4L1149.6,382.5L1131.1,382.5L1116.1,380.2L1112.2,387.5L1106.2,392.9L1093.6,393.0L1080.1,396.5L1075.5,396.2L1069.9,393.2L1046.7,399.1L1035.3,389.6L1024.6,388.8L1012.3,383.8L1004.8,382.5L1000.9,378.8L998.6,372.7L1001.1,365.9L1008.1,356.4L1020.4,355.0L1020.5,342.3L1017.1,332.7L1019.1,328.9L1024.4,329.5L1030.0,326.5L1032.3,331.3L1031.2,340.1L1034.3,342.3L1052.9,340.7L1087.3,355.1L1098.1,349.8L1105.7,349.6L1111.8,346.2L1118.4,335.8L1118.6,330.7L1116.6,325.5L1120.8,321.2L1129.1,320.6L1137.4,315.2L1154.8,307.3L1157.8,314.4L1154.1,319.3Z"],["Erzincan","M1147.5,239.3L1164.2,239.3L1166.5,240.6L1168.8,245.5L1168.1,250.9L1170.6,254.9L1180.6,260.9L1175.0,272.0L1175.1,277.2L1169.1,275.2L1137.9,274.2L1125.8,278.1L1118.0,275.0L1109.0,278.2L1103.4,284.8L1100.8,285.9L1097.2,285.6L1096.4,281.8L1094.6,281.1L1086.3,282.3L1073.7,280.0L1061.1,282.4L1056.7,283.8L1046.5,292.4L1035.1,298.2L1033.1,302.0L1036.2,304.2L1043.4,305.0L1042.7,307.1L1031.4,312.0L1027.9,318.7L1030.0,326.5L1024.4,329.5L1022.4,324.9L1019.4,322.1L1012.1,318.5L1003.8,318.2L999.0,316.0L1002.0,308.7L1002.2,288.9L998.6,276.3L999.9,261.7L1003.6,255.4L1005.6,254.3L1006.4,251.3L1012.0,250.3L1014.5,247.3L1012.0,245.2L1002.7,247.4L1000.1,246.3L1001.2,240.4L1006.2,233.1L1027.7,234.3L1029.9,232.8L1031.6,225.1L1043.6,223.7L1058.1,228.8L1058.1,229.9L1079.0,241.2L1085.8,242.8L1107.5,238.8L1117.5,229.2L1136.3,223.0L1149.1,226.1L1145.8,235.3L1147.5,239.3Z"],["Erzurum","M1308.0,131.7L1308.2,137.5L1311.7,146.6L1320.5,157.9L1326.4,168.6L1324.1,185.6L1321.9,189.2L1303.4,198.4L1293.9,201.0L1293.0,203.9L1298.3,213.3L1310.8,216.9L1321.1,225.9L1325.2,232.6L1326.3,235.2L1313.9,242.7L1303.9,241.8L1302.1,243.9L1304.5,248.6L1320.5,254.7L1321.8,257.6L1323.0,273.1L1318.9,281.1L1307.7,284.1L1298.9,289.0L1297.3,291.8L1299.4,295.4L1299.3,297.8L1288.1,307.8L1269.8,313.8L1260.5,312.7L1255.1,309.1L1244.7,296.6L1234.6,291.6L1221.6,294.5L1214.8,284.1L1206.9,283.4L1200.6,279.1L1196.8,274.5L1193.4,273.5L1180.0,278.8L1175.5,277.6L1175.0,272.0L1180.6,260.9L1170.6,254.9L1168.1,250.9L1168.8,245.5L1166.5,240.6L1164.2,239.3L1147.5,239.3L1145.9,236.9L1149.1,226.1L1164.5,227.4L1177.1,218.7L1185.9,214.9L1188.7,210.2L1187.6,206.9L1176.4,205.4L1172.9,203.4L1172.6,200.9L1170.4,199.3L1167.8,181.8L1165.6,176.5L1191.2,164.6L1214.1,149.2L1220.0,152.0L1234.5,152.8L1235.4,155.5L1231.0,165.0L1232.8,172.1L1237.9,173.7L1255.8,163.7L1260.1,163.9L1269.4,168.2L1275.2,165.4L1280.2,144.4L1283.3,136.9L1290.0,133.6L1303.5,133.5L1308.0,131.7Z"],["Eskişehir","M425.3,228.1L441.1,225.6L475.4,228.4L481.5,231.2L489.4,241.7L494.1,242.5L496.3,249.2L493.3,253.2L493.4,257.0L497.1,266.8L504.8,280.4L506.0,298.7L504.5,307.5L494.3,313.2L492.6,319.3L487.5,322.2L479.3,320.2L464.1,321.3L457.5,318.1L451.2,302.7L446.2,301.5L438.5,308.1L426.6,314.1L418.6,308.7L411.8,312.8L409.3,317.1L397.8,322.3L391.1,316.0L389.0,311.1L384.9,309.4L382.0,301.3L374.7,293.9L374.2,281.7L360.5,267.9L364.2,260.3L353.2,260.7L349.8,256.5L349.9,251.4L355.4,244.7L360.3,243.2L369.0,244.5L377.4,236.3L383.0,236.2L387.2,233.9L390.4,229.3L394.1,215.3L406.2,212.8L416.5,215.5L420.7,220.1L421.3,226.7L425.3,228.1Z"],["Gaziantep","M965.0,478.8L970.8,480.8L975.4,486.2L970.5,486.1L966.5,489.6L959.6,498.8L958.2,505.6L962.2,524.3L969.6,532.1L972.4,537.2L972.3,547.5L964.3,551.4L955.2,555.1L944.6,556.9L933.2,564.5L927.6,551.9L912.4,543.5L909.1,533.5L905.0,529.3L894.8,529.0L891.6,530.6L886.7,539.7L877.6,545.7L876.9,549.3L868.5,545.4L864.7,545.9L850.4,534.7L857.9,518.6L872.6,502.4L885.7,493.4L888.1,495.0L891.1,506.9L894.6,508.3L897.5,506.5L900.7,501.7L908.2,496.7L939.9,490.3L942.0,486.7L942.1,478.8L946.5,478.8L954.2,475.4L965.0,478.8Z"],["Giresun","M1005.4,137.0L1005.5,137.2L1005.2,137.1L1005.3,136.9L1005.4,137.0ZM1061.9,122.1L1063.0,122.6L1060.7,126.3L1058.3,134.9L1058.4,145.5L1060.8,152.4L1057.5,154.2L1051.2,154.2L1045.4,158.9L1037.3,173.8L1037.9,183.9L1047.9,187.2L1054.7,193.6L1052.9,196.7L1046.1,200.1L1042.1,204.4L1041.9,215.0L1045.3,220.3L1044.1,223.2L1038.5,225.2L1031.6,225.1L1015.8,218.4L1007.1,220.4L991.0,210.4L989.2,197.9L983.5,177.2L980.5,168.8L972.1,155.2L981.0,134.5L987.0,136.2L993.4,135.5L999.1,139.1L1001.7,137.6L1004.8,138.9L1012.5,138.3L1019.9,132.7L1023.9,135.1L1027.0,134.9L1034.9,128.8L1039.2,128.9L1044.0,125.6L1053.3,126.3L1061.9,122.1Z"],["Gümüşhane","M1062.8,154.0L1073.5,163.4L1099.7,174.0L1105.4,172.3L1108.7,162.5L1111.8,158.3L1114.4,160.8L1113.7,168.1L1118.4,168.5L1121.1,172.6L1124.4,173.9L1126.6,170.9L1124.9,166.3L1127.2,164.1L1135.3,172.9L1132.7,183.3L1130.1,188.4L1126.0,193.1L1117.8,195.3L1115.6,197.4L1113.1,205.0L1112.9,214.2L1111.7,217.9L1106.7,222.3L1102.8,228.6L1104.8,233.9L1110.1,236.9L1109.5,237.7L1097.2,241.5L1083.3,242.7L1069.7,236.5L1058.1,229.9L1058.1,228.8L1043.6,223.7L1045.3,220.3L1041.9,215.0L1042.1,204.4L1046.1,200.1L1052.9,196.7L1054.7,193.6L1047.9,187.2L1037.9,183.9L1037.5,172.9L1043.6,160.8L1051.2,154.2L1057.5,154.2L1060.8,152.4L1062.8,154.0Z"],["Hakkari","M1456.1,457.4L1456.9,460.8L1454.7,465.9L1456.9,467.4L1463.3,464.4L1471.0,465.1L1477.4,460.2L1482.4,453.3L1485.2,454.6L1487.3,458.4L1482.9,465.3L1487.1,469.2L1487.4,472.4L1485.6,474.7L1486.2,481.8L1484.6,485.6L1489.2,487.3L1491.3,491.5L1494.7,492.2L1501.7,499.2L1502.5,502.6L1498.2,507.6L1500.3,515.2L1497.6,513.3L1487.3,511.3L1477.5,520.6L1465.0,525.1L1466.1,527.4L1462.6,533.3L1458.6,531.7L1456.6,527.3L1456.9,525.0L1453.4,520.2L1456.5,514.3L1458.6,514.5L1460.3,512.5L1459.4,506.4L1456.2,502.1L1448.7,498.4L1440.3,497.5L1435.4,501.3L1433.9,504.5L1429.7,506.5L1411.8,506.9L1398.9,503.2L1394.0,496.7L1393.9,477.7L1398.5,457.3L1412.5,458.5L1421.0,457.4L1429.4,460.0L1435.4,457.3L1442.8,458.2L1453.4,453.1L1456.1,457.4Z"],["Hatay","M830.4,557.6L830.7,557.7L830.7,557.7L830.5,557.8L830.4,557.6ZM820.8,527.7L835.8,529.1L843.0,534.5L850.4,534.7L864.7,545.9L868.0,546.3L868.7,548.1L864.7,554.2L865.5,559.5L861.7,566.4L862.6,573.8L859.0,580.3L861.8,590.2L864.4,590.9L864.8,594.6L863.2,597.0L867.8,597.0L868.2,599.8L870.4,600.8L870.8,605.0L864.1,608.3L861.4,606.8L854.5,606.6L852.6,609.8L846.9,607.7L847.1,610.9L845.3,613.1L846.9,621.6L845.4,629.9L842.8,630.8L840.7,629.6L839.2,630.8L839.5,634.3L832.5,634.9L830.1,639.8L830.2,646.4L829.1,648.5L825.1,643.4L817.5,641.9L817.8,637.6L816.7,636.0L811.0,638.1L809.7,636.8L814.4,628.1L808.0,614.2L798.9,600.1L799.0,597.8L801.7,594.0L804.6,593.1L805.2,590.4L807.9,588.5L809.0,585.5L814.7,582.6L818.9,576.6L827.6,570.9L831.1,570.4L832.8,564.1L831.0,559.5L831.7,557.3L830.5,557.1L832.0,551.8L827.5,544.5L826.1,544.7L826.9,543.8L822.7,539.5L817.3,537.0L811.2,541.3L811.7,542.6L811.8,543.6L809.3,540.4L812.4,533.6L819.2,527.4L820.8,527.7Z"],["Iğdır","M1414.1,211.3L1415.5,213.4L1410.9,215.2L1410.9,218.9L1415.9,222.0L1419.8,222.0L1430.4,228.2L1459.7,225.2L1475.4,233.3L1481.0,239.6L1484.5,247.5L1486.3,247.2L1486.0,248.5L1490.2,251.2L1492.0,250.6L1492.2,253.2L1493.5,253.2L1500.9,262.3L1501.5,267.5L1493.8,259.3L1488.7,256.7L1486.2,252.3L1476.3,260.4L1457.2,263.0L1450.1,260.6L1437.2,261.3L1417.6,250.1L1408.4,247.8L1401.3,248.0L1397.2,253.3L1390.6,250.5L1390.6,236.4L1389.2,234.1L1387.2,233.7L1386.9,230.1L1382.8,223.2L1383.1,220.3L1384.5,218.7L1389.6,218.8L1390.6,216.8L1389.8,213.3L1392.0,211.8L1403.8,211.6L1411.5,208.1L1414.1,211.3Z"],["Isparta","M462.6,444.7L462.5,452.2L453.5,486.2L452.6,487.6L445.4,488.0L441.4,491.0L427.2,495.7L420.9,492.8L418.9,487.4L409.2,477.4L404.3,462.2L400.3,459.9L388.9,458.3L381.9,452.6L378.5,447.0L374.7,446.3L356.0,459.7L353.4,459.1L349.9,454.5L350.5,452.8L356.3,452.5L363.2,448.0L365.5,444.3L363.9,439.9L367.1,431.9L370.4,428.4L378.2,422.9L389.9,411.4L399.5,405.4L411.9,401.0L417.9,393.8L435.5,378.3L437.6,378.9L443.7,386.0L446.9,387.3L446.3,391.5L447.9,393.9L475.3,418.0L475.4,421.1L474.0,423.5L464.3,427.9L460.6,432.9L460.3,439.2L462.6,444.7Z"],["İstanbul","M280.9,147.9L280.9,148.2L280.6,148.0L280.6,147.9L280.9,147.9ZM283.2,144.4L283.5,145.0L283.5,145.4L282.9,145.0L283.2,144.4ZM271.7,143.3L271.7,143.7L271.3,143.8L271.2,143.4L271.7,143.3ZM282.1,142.4L282.8,143.0L280.8,146.2L280.3,143.9L282.1,142.4ZM269.9,142.3L270.0,142.6L269.6,142.6L269.6,142.4L269.9,142.3ZM279.5,141.5L280.1,142.7L277.8,143.2L277.9,142.6L279.5,141.5ZM278.0,141.3L278.2,141.6L277.9,141.9L277.9,141.5L278.0,141.3ZM276.7,141.3L277.3,141.5L277.6,142.1L276.1,142.3L276.7,141.3ZM276.0,138.5L276.5,139.4L275.5,139.8L275.0,138.8L276.0,138.5ZM291.9,106.5L317.7,113.0L319.4,111.8L324.4,113.8L339.0,115.6L340.6,120.8L338.0,123.1L330.2,124.7L322.1,129.1L310.6,126.4L309.4,129.9L305.6,132.6L304.6,137.9L299.1,140.9L297.0,144.1L292.3,144.5L291.2,142.8L283.2,139.9L279.5,135.0L274.5,133.4L274.9,132.0L273.7,132.2L272.5,129.0L272.7,127.4L276.0,125.2L277.1,119.7L279.5,118.2L277.5,115.7L278.8,112.1L284.9,107.5L291.9,106.5ZM209.8,75.4L215.5,80.4L243.3,95.0L247.5,95.2L255.2,99.8L257.3,99.5L269.4,104.7L278.1,104.5L280.7,106.2L280.5,109.0L274.9,114.4L277.6,117.5L276.4,121.8L274.6,125.0L270.1,127.8L267.3,125.2L268.0,124.2L267.7,123.5L267.0,125.5L269.2,127.8L271.0,128.3L270.8,129.5L267.1,129.9L262.3,133.2L260.4,132.6L258.3,134.6L253.7,131.8L242.5,134.0L240.5,132.7L240.0,128.2L238.1,128.3L236.3,131.6L225.9,125.5L214.5,123.8L212.4,122.2L203.9,124.0L198.7,114.9L201.1,108.9L206.0,105.8L209.8,93.7L212.3,80.1L208.2,77.0L209.8,75.4Z"],["İzmir","M107.4,427.6L107.6,427.7L107.6,427.9L107.3,427.9L107.4,427.6ZM117.7,425.4L117.7,425.7L117.5,425.7L117.5,425.5L117.7,425.4ZM105.4,425.3L105.3,425.6L105.2,425.5L105.2,425.4L105.4,425.3ZM101.3,414.7L101.3,414.8L101.2,415.1L101.2,414.8L101.3,414.7ZM101.5,413.7L101.3,414.2L101.1,414.3L101.1,413.8L101.5,413.7ZM72.9,411.2L73.1,411.4L73.0,411.7L72.7,411.5L72.9,411.2ZM72.5,410.1L72.6,410.7L72.1,410.6L72.1,410.4L72.5,410.1ZM98.6,409.9L98.9,410.0L98.8,410.2L98.6,410.2L98.6,409.9ZM74.0,409.9L73.7,410.4L73.2,410.2L73.3,410.0L74.0,409.9ZM55.1,400.2L55.2,400.5L55.2,401.0L55.0,400.7L55.1,400.2ZM91.6,396.6L91.6,397.0L91.3,397.1L91.2,396.8L91.6,396.6ZM74.1,393.2L74.4,393.9L74.1,394.1L73.5,393.5L74.1,393.2ZM100.2,392.2L100.4,392.5L99.7,393.3L99.8,392.4L100.2,392.2ZM75.1,391.8L75.1,392.5L74.7,392.6L74.7,392.5L75.1,391.8ZM73.8,391.0L73.9,391.3L73.8,391.4L73.6,391.0L73.8,391.0ZM73.8,390.5L73.8,390.8L73.6,390.9L73.7,390.6L73.8,390.5ZM100.3,390.0L100.4,390.4L99.9,390.7L99.8,390.4L100.3,390.0ZM75.3,390.2L75.3,390.5L75.2,390.0L75.4,390.0L75.3,390.2ZM75.0,389.7L75.3,390.8L75.0,391.3L74.7,390.5L75.0,389.7ZM77.1,389.5L77.2,389.6L77.0,389.7L76.9,389.5L77.1,389.5ZM98.7,388.9L99.0,389.3L98.7,389.6L98.6,389.0L98.7,388.9ZM100.7,388.5L101.0,389.3L100.5,389.3L100.4,388.9L100.7,388.5ZM99.7,388.2L99.9,388.4L99.9,388.5L99.5,388.4L99.7,388.2ZM62.8,387.7L63.3,388.2L63.2,388.6L62.8,388.3L62.8,387.7ZM68.9,386.4L69.1,387.8L67.8,387.3L67.9,386.8L68.9,386.4ZM67.6,386.2L67.9,386.6L67.5,387.3L67.4,386.3L67.6,386.2ZM114.6,385.9L114.4,386.6L114.2,386.5L114.4,385.8L114.6,385.9ZM110.6,385.2L110.9,385.3L110.9,385.5L110.6,385.4L110.6,385.2ZM98.5,384.5L99.2,385.9L98.3,386.5L97.9,384.7L98.5,384.5ZM66.8,384.4L66.6,387.2L64.6,387.7L64.1,385.9L66.8,384.4ZM104.9,376.5L105.3,376.7L105.3,376.7L104.8,376.6L104.9,376.5ZM105.6,376.6L105.8,376.6L105.9,376.5L106.0,376.7L105.5,376.6L105.7,376.3L105.6,376.6ZM93.2,375.3L95.5,377.0L95.7,380.3L97.1,381.8L96.5,384.1L92.8,382.0L93.2,375.3ZM102.5,375.4L103.1,376.2L103.0,376.8L102.1,375.6L102.5,375.4ZM79.4,364.6L79.6,364.8L79.8,365.0L79.5,364.8L79.4,364.6ZM79.2,363.7L79.2,364.2L78.5,364.3L78.9,363.7L79.2,363.7ZM95.3,362.3L95.6,362.6L95.4,363.0L95.1,362.5L95.3,362.3ZM94.7,362.2L94.7,362.4L94.2,362.6L94.3,362.3L94.7,362.2ZM94.0,359.7L95.2,360.7L95.0,361.3L93.9,360.8L94.0,359.7ZM94.0,358.3L94.0,358.7L93.9,358.9L93.9,358.7L94.0,358.3ZM95.9,356.6L95.9,356.8L95.7,356.7L95.8,356.6L95.9,356.6ZM107.5,344.3L107.8,345.2L107.0,345.3L107.0,344.8L107.5,344.3ZM108.3,343.3L108.3,343.5L108.2,343.8L108.1,343.6L108.3,343.3ZM119.7,341.6L119.5,341.5L119.8,341.3L119.8,341.5L119.7,341.6ZM103.7,339.1L104.1,339.6L104.1,339.9L103.6,339.6L103.7,339.1ZM101.9,337.2L103.0,337.7L102.8,338.9L101.5,338.3L101.9,337.2ZM101.4,336.2L101.5,336.5L101.5,336.6L101.3,336.4L101.4,336.2ZM100.9,328.9L100.8,330.2L100.4,330.4L100.5,329.2L100.9,328.9ZM100.0,328.8L100.1,329.4L99.8,330.0L99.5,329.1L100.0,328.8ZM153.2,312.8L155.8,318.2L155.8,328.0L150.3,333.3L146.7,334.8L145.3,337.3L129.6,340.8L126.8,349.3L126.3,352.0L134.5,356.1L138.3,372.8L142.9,371.2L152.2,373.7L160.5,381.4L174.3,385.3L180.4,394.9L182.9,396.6L194.4,390.0L203.4,389.7L205.6,390.8L206.8,393.9L211.6,396.4L228.0,400.5L231.1,404.5L235.3,416.5L237.8,419.1L213.6,428.1L199.9,427.1L190.7,429.3L189.5,428.2L188.3,430.5L176.9,432.8L172.5,431.4L157.9,431.6L150.9,438.4L144.1,440.9L138.2,440.8L136.8,438.7L137.9,435.5L135.9,431.9L133.4,430.8L127.7,431.6L124.3,428.5L122.4,428.7L120.3,425.0L115.3,422.6L108.6,423.8L106.0,427.2L102.9,414.2L100.7,412.7L99.1,413.9L98.9,410.3L100.3,410.1L97.7,407.8L95.8,409.3L88.3,409.3L87.4,416.2L85.7,415.7L86.6,418.9L84.8,419.7L83.2,415.7L82.4,418.3L80.0,417.2L78.6,413.4L79.1,411.3L78.1,412.5L76.7,411.7L77.0,410.4L74.5,410.8L73.2,408.1L71.5,407.9L72.2,409.2L72.4,410.1L72.3,410.2L69.1,407.7L70.1,405.5L69.2,403.9L68.3,403.7L69.0,405.3L67.4,407.3L64.9,407.4L61.0,403.5L56.9,403.4L57.0,400.6L60.0,401.0L60.7,397.6L62.4,397.9L61.0,395.8L61.0,392.3L62.2,394.5L63.4,392.4L63.6,397.0L65.7,396.6L65.7,398.1L68.3,399.1L68.7,395.1L70.1,397.7L76.3,392.4L75.8,389.8L73.9,387.2L76.9,389.9L79.0,387.2L72.9,382.3L69.4,385.3L70.9,380.6L67.7,377.0L68.0,375.8L68.4,377.7L68.4,375.6L66.8,373.3L66.3,366.1L66.9,364.0L71.2,361.9L75.7,362.5L79.5,365.0L79.5,366.9L82.6,369.7L83.1,374.0L87.4,376.9L88.7,383.1L84.5,383.0L85.9,384.8L84.3,387.3L86.4,387.8L88.9,392.4L88.9,396.0L91.2,398.8L93.5,398.0L91.3,395.2L91.5,394.0L92.1,395.0L92.3,394.8L91.3,391.2L93.8,386.5L96.1,387.1L98.4,393.3L101.7,394.5L117.9,388.2L123.3,390.2L125.8,389.0L128.1,385.2L129.8,385.9L128.9,383.3L125.3,385.1L122.7,383.3L118.7,383.2L114.6,384.5L112.6,386.8L112.8,385.7L110.3,384.7L110.5,383.2L107.6,379.2L103.8,377.8L103.2,377.3L107.9,378.9L107.5,376.5L104.8,375.7L104.7,374.0L104.3,375.0L102.8,375.0L104.7,374.0L104.1,371.2L103.4,372.2L101.0,368.9L97.7,368.5L98.7,366.4L95.0,364.8L97.4,363.5L95.6,362.5L96.4,361.9L95.3,357.8L96.6,356.8L96.4,355.8L99.5,356.3L102.9,353.8L103.8,355.8L105.6,354.7L108.4,356.6L109.4,353.3L111.1,354.4L111.8,353.4L108.2,347.5L109.9,348.3L112.2,346.3L112.1,348.8L114.2,349.6L115.4,347.7L113.6,346.9L114.3,345.4L118.6,342.7L118.1,343.8L119.3,344.4L121.7,342.3L120.6,340.3L119.5,340.7L121.0,338.7L120.0,335.9L117.1,338.1L118.0,338.7L114.2,337.3L113.2,336.2L114.1,335.6L111.7,336.2L111.9,337.4L110.3,336.0L105.6,338.6L104.9,336.6L101.1,334.9L100.8,330.4L102.3,327.4L100.9,328.5L101.0,326.8L107.8,322.5L103.8,315.8L98.3,312.7L113.3,304.1L130.3,287.9L148.3,291.8L152.2,300.5L153.2,312.8Z"],["Kahramanmaraş","M896.8,370.5L898.4,372.2L916.1,370.4L915.0,374.6L908.9,380.7L909.1,383.9L921.8,383.5L929.1,384.8L948.1,394.2L953.9,399.0L953.7,407.8L943.1,438.3L934.6,452.7L925.9,461.5L926.9,469.5L938.3,474.9L942.1,478.8L941.7,487.5L936.9,491.7L908.2,496.7L900.7,501.7L897.5,506.5L894.6,508.3L891.0,506.7L888.3,495.5L886.4,493.3L872.6,502.4L866.6,497.0L861.3,489.5L854.0,493.1L845.4,495.1L835.8,493.7L832.5,478.3L836.9,471.8L844.0,455.5L844.0,452.5L840.8,446.7L840.5,441.4L842.1,430.3L849.3,404.2L861.5,390.5L868.7,379.6L871.5,371.4L887.5,367.2L896.8,370.5Z"],["Karabük","M580.8,78.0L586.3,88.4L583.7,92.9L579.1,96.6L576.6,101.5L576.4,108.5L577.2,110.5L583.8,114.6L588.9,121.1L585.0,128.4L558.9,134.2L545.5,146.1L542.8,142.5L527.1,135.9L527.3,129.2L512.3,128.2L513.7,117.5L515.6,114.2L520.9,110.2L528.6,106.2L538.4,104.6L552.5,96.0L556.2,92.2L559.4,83.6L563.9,81.1L566.8,77.3L569.1,78.7L577.1,74.6L580.8,78.0Z"],["Karaman","M647.3,491.8L653.2,497.8L655.4,502.8L668.2,505.9L675.9,512.2L667.8,516.9L659.8,517.3L650.3,523.9L641.2,527.2L632.0,525.3L624.0,529.7L613.1,530.1L591.9,544.8L579.9,549.1L586.0,562.3L590.4,566.6L599.8,571.6L600.8,574.1L599.4,577.7L587.1,583.1L567.0,586.9L556.3,585.4L548.2,579.2L544.3,573.9L540.6,562.6L541.7,554.9L552.4,551.5L563.3,544.9L568.1,538.9L553.0,535.1L549.1,531.1L549.0,528.7L555.5,520.7L558.4,514.2L558.9,508.8L564.9,506.6L570.5,508.8L575.1,508.6L572.2,501.9L576.5,493.0L587.3,491.2L591.5,485.1L594.3,484.4L598.5,484.7L605.9,492.3L610.4,492.5L613.1,490.3L615.6,482.2L620.6,475.8L633.0,469.6L639.3,469.2L647.3,491.8Z"],["Kars","M1406.6,131.4L1412.6,137.2L1412.5,145.6L1415.4,148.8L1418.2,156.4L1417.2,159.2L1418.3,161.9L1412.5,172.1L1409.9,174.1L1410.4,176.8L1409.1,176.3L1408.7,178.0L1402.4,182.3L1408.1,188.2L1406.1,196.3L1409.7,202.3L1413.0,204.2L1413.0,207.0L1404.7,211.4L1392.0,211.8L1389.8,213.3L1390.6,216.8L1389.6,218.8L1383.9,219.1L1382.7,222.9L1386.9,230.1L1387.2,233.7L1368.0,229.2L1337.5,238.2L1331.1,238.0L1326.3,235.2L1321.1,225.9L1310.8,216.9L1298.3,213.3L1293.0,204.5L1293.9,201.0L1303.4,198.4L1322.3,188.9L1324.1,185.6L1326.6,171.0L1324.9,165.9L1329.8,166.0L1337.0,161.9L1347.3,158.6L1349.9,153.0L1350.2,144.7L1352.9,137.9L1359.5,133.8L1368.8,131.6L1377.0,127.4L1380.3,121.6L1380.5,114.5L1381.8,111.7L1388.4,109.8L1394.0,112.1L1396.6,117.0L1395.0,120.8L1396.7,127.2L1406.6,131.4Z"],["Kastamonu","M609.2,28.0L635.6,32.0L664.2,31.8L678.2,34.5L678.1,42.6L681.3,49.5L681.5,56.1L698.9,57.5L707.1,63.1L706.9,66.5L704.6,70.8L696.7,75.9L697.5,99.6L694.3,99.4L691.2,102.3L683.2,113.3L676.9,126.0L678.1,129.1L682.3,132.4L682.2,137.3L663.4,144.9L652.2,140.8L646.9,138.1L644.1,134.9L644.3,130.4L649.7,124.7L649.5,122.2L647.2,120.3L617.8,133.8L612.8,133.9L599.6,123.8L594.4,121.3L588.9,121.1L582.2,113.0L577.2,110.5L576.2,102.5L579.1,96.6L583.7,92.9L586.3,88.4L579.2,75.4L569.4,70.4L564.3,56.8L558.1,46.5L576.2,42.7L585.0,37.3L596.0,34.5L609.2,28.0Z"],["Kayseri","M812.0,309.9L817.0,315.2L821.3,317.0L839.9,317.0L845.1,314.7L851.7,317.0L862.9,312.4L876.4,312.5L885.1,316.9L889.4,324.3L874.9,362.6L872.9,370.9L870.3,372.8L868.5,380.1L855.6,397.7L854.2,398.4L852.8,396.3L847.7,384.4L839.7,383.6L827.4,389.8L816.6,411.9L791.2,424.0L786.6,434.4L772.3,438.0L758.9,434.1L762.5,425.9L762.5,413.1L760.0,407.9L756.6,404.5L747.8,404.1L743.2,401.8L737.8,387.8L732.3,386.8L731.2,383.8L731.1,379.5L732.6,376.2L739.7,373.5L743.7,368.6L743.7,355.2L734.7,350.2L738.5,328.7L741.2,326.2L744.5,326.2L757.0,329.4L775.8,320.0L774.3,314.3L775.0,311.3L790.9,309.7L801.4,300.1L807.1,302.4L812.0,309.9Z"],["Kilis","M927.6,551.9L933.2,564.5L931.4,565.9L905.0,563.7L903.2,564.1L900.8,567.6L895.9,563.9L898.1,557.6L889.4,551.9L878.5,550.1L876.8,547.6L878.6,544.7L886.7,539.7L891.6,530.6L894.8,529.0L903.4,529.0L907.9,531.4L912.4,543.5L927.6,551.9Z"],["Kırıkkale","M654.2,203.8L666.7,207.5L668.8,216.9L676.0,226.3L665.2,235.2L665.9,249.2L653.6,259.4L649.4,273.7L645.1,278.5L641.9,285.5L635.7,285.6L628.3,291.9L623.9,304.5L615.3,313.9L611.3,307.4L613.2,302.3L611.6,298.3L605.1,297.0L601.0,292.3L605.0,283.8L609.2,258.4L611.1,254.1L616.2,248.9L629.7,240.8L631.0,234.2L627.7,225.2L631.2,214.5L637.9,204.1L642.6,201.5L654.2,203.8Z"],["Kırklareli","M136.3,19.5L142.2,21.6L143.0,23.8L145.9,25.0L148.9,31.0L156.1,34.9L159.4,40.0L160.7,39.4L159.9,38.6L160.8,36.3L168.5,34.7L170.4,32.7L173.2,32.7L178.9,36.4L180.9,35.5L179.8,32.0L182.8,30.3L186.7,33.1L196.7,31.3L198.8,41.7L195.1,40.6L194.0,41.2L192.0,43.8L194.0,50.3L197.6,54.7L197.5,56.9L202.5,63.1L201.3,63.7L201.4,66.2L205.9,71.9L192.6,75.7L183.9,79.9L176.4,79.1L173.4,80.6L169.0,84.2L168.9,89.0L166.6,95.1L159.6,106.3L157.1,107.9L153.3,107.4L145.9,99.0L136.9,95.3L109.9,96.7L107.4,93.6L107.5,89.4L116.6,73.5L116.4,67.7L110.5,64.4L109.5,62.0L112.8,56.9L114.2,48.7L115.7,38.2L114.4,32.2L115.3,26.7L118.1,24.9L118.8,21.9L122.0,20.8L132.9,23.5L132.7,21.6L136.3,19.5Z"],["Kırşehir","M678.2,255.8L688.3,255.1L693.7,256.7L697.0,262.8L702.9,267.8L701.4,274.2L711.6,281.3L708.0,291.9L707.9,297.3L712.0,298.2L717.0,293.9L719.2,294.8L713.9,303.0L714.4,308.0L709.2,312.6L710.0,320.3L704.7,322.1L705.4,327.0L701.0,330.9L697.5,338.2L697.3,341.3L693.8,342.4L687.0,341.4L684.7,343.8L684.1,348.4L681.0,350.6L677.8,348.4L674.3,341.8L666.6,339.6L659.2,333.5L654.9,329.2L656.0,326.2L629.3,312.9L623.9,304.5L628.3,291.9L635.7,285.6L641.9,285.5L645.1,278.5L649.4,273.7L653.4,259.9L657.7,255.2L665.9,249.2L678.2,255.8Z"],["Kocaeli","M370.9,108.8L376.9,110.7L379.0,113.7L378.6,116.7L374.6,119.9L372.1,128.0L377.9,135.0L379.0,143.1L378.2,145.0L372.3,147.9L373.0,154.4L367.5,167.2L361.6,167.8L351.2,172.1L342.0,172.0L331.6,168.7L316.8,174.3L307.2,174.5L305.5,174.0L305.6,162.1L312.0,155.9L312.5,157.9L311.4,158.3L315.7,161.3L335.1,157.0L343.3,158.6L344.8,158.0L345.1,154.4L332.8,155.9L328.8,152.8L319.8,151.7L316.4,153.4L310.0,152.0L299.6,154.5L297.8,148.4L292.0,149.7L291.8,148.5L294.7,146.7L293.0,146.8L292.6,145.7L293.7,146.3L297.7,143.7L299.1,140.9L304.6,137.9L305.6,132.6L309.4,129.9L310.6,126.4L322.7,129.0L330.2,124.7L340.1,122.0L340.6,119.6L339.1,115.8L361.6,116.2L364.7,115.3L364.7,113.8L367.3,113.8L367.1,111.4L369.2,111.3L370.9,108.8ZM370.2,108.2L369.9,108.6L369.6,108.5L369.7,108.2L370.2,108.2Z"],["Konya","M600.8,307.8L611.9,326.2L611.0,350.8L619.0,366.4L611.2,376.3L606.3,395.3L601.5,405.3L601.8,409.8L611.0,429.6L615.4,435.2L621.3,436.7L644.0,434.3L666.3,428.7L672.1,429.3L686.0,444.4L695.6,459.9L695.8,465.2L691.4,474.4L690.1,482.7L690.4,484.6L693.2,485.3L698.0,490.4L700.5,496.7L699.1,498.6L686.4,505.8L685.4,507.8L675.9,512.2L668.2,505.9L655.2,502.6L653.2,497.8L647.3,491.8L639.3,469.2L633.0,469.6L619.6,476.8L614.5,484.6L613.1,490.3L610.8,492.2L605.9,492.3L598.5,484.7L592.5,484.6L587.3,491.2L579.3,491.6L574.9,494.7L572.2,502.4L575.1,508.6L570.5,508.8L564.9,506.6L558.5,509.2L557.9,515.7L554.5,522.2L549.3,528.2L549.0,530.9L553.6,535.4L568.1,538.9L563.3,544.9L552.4,551.5L541.7,554.9L537.6,547.2L527.8,544.9L523.2,530.0L493.2,501.2L484.0,497.2L463.2,495.8L456.5,493.0L452.6,487.6L455.3,481.9L455.9,475.0L462.5,452.2L462.6,444.7L460.5,440.0L460.4,433.4L464.3,427.9L474.0,423.5L475.5,419.4L473.0,415.5L447.3,393.3L446.4,388.8L446.9,387.3L480.2,366.7L474.9,362.5L473.2,357.4L475.9,348.2L482.5,334.6L481.6,320.7L486.4,322.4L491.9,320.0L494.3,313.2L496.1,312.6L503.1,319.6L514.0,326.9L528.0,323.2L541.8,330.5L548.3,325.0L559.8,326.7L562.8,321.8L570.3,314.6L574.5,314.6L580.0,317.3L584.5,314.1L587.2,308.1L591.8,307.9L597.5,302.3L600.8,307.8Z"],["Kütahya","M315.7,240.9L324.6,239.4L325.9,242.0L325.4,247.5L328.2,255.9L346.0,261.8L359.1,259.6L364.2,260.3L360.4,267.6L374.2,281.7L374.4,293.2L382.0,301.3L384.9,309.4L384.4,311.8L379.6,317.4L370.0,322.0L363.0,339.7L357.7,349.3L343.3,358.3L341.5,359.0L341.3,351.0L339.0,344.5L325.5,340.9L318.2,342.4L311.2,346.4L295.7,351.8L290.2,356.7L279.1,356.1L274.8,357.2L274.6,344.9L272.8,342.7L271.2,334.3L268.7,329.1L263.2,322.5L248.4,317.9L245.7,313.6L245.7,306.6L255.9,301.6L262.9,293.3L267.4,278.0L266.9,274.9L269.1,271.1L273.7,274.2L279.2,275.6L289.8,274.2L291.2,271.9L292.8,260.7L298.1,252.4L303.6,239.3L307.1,237.5L315.7,240.9Z"],["Malatya","M1004.7,318.3L1012.1,318.5L1019.4,322.1L1022.4,324.9L1024.4,329.5L1019.1,328.9L1017.1,332.1L1020.5,342.3L1020.4,355.0L1009.9,355.6L1007.4,357.1L998.4,371.4L1000.9,378.8L1004.8,382.5L1012.3,383.8L1024.6,388.8L1035.9,389.8L1046.7,399.1L1058.4,396.2L1060.2,401.5L1058.7,410.2L1054.9,415.5L1049.5,418.3L1038.2,420.8L1022.4,420.8L1015.2,417.6L1020.0,413.1L1020.7,410.1L1013.8,407.0L1008.1,408.2L981.9,421.1L985.5,438.1L969.4,444.0L957.8,441.9L953.5,443.4L951.0,446.6L945.3,446.5L937.1,449.1L947.9,426.2L953.9,407.3L953.9,399.0L948.1,394.2L929.6,385.0L921.8,383.5L909.5,384.1L908.9,380.7L915.0,374.6L916.5,370.0L931.5,359.4L938.3,352.4L940.1,346.3L936.7,337.4L936.6,334.1L939.4,329.0L954.4,329.9L966.7,324.1L984.9,322.9L995.3,316.2L1004.7,318.3Z"],["Manisa","M169.4,295.3L178.1,294.3L185.1,295.4L186.2,294.3L187.8,297.1L185.1,303.0L186.2,306.4L192.6,307.2L195.1,308.9L198.7,312.8L203.0,323.7L206.1,325.5L230.6,317.6L242.5,311.8L245.7,313.6L249.3,318.6L260.8,321.4L265.5,324.5L271.0,333.8L274.8,347.0L274.8,357.2L262.6,366.3L260.2,372.4L259.6,381.0L260.8,390.5L258.4,394.5L265.9,403.5L256.6,408.1L255.6,415.8L250.2,420.1L247.4,418.5L237.8,419.1L235.3,416.5L231.1,404.5L228.0,400.5L211.6,396.4L206.8,393.9L205.6,390.8L203.4,389.7L194.4,390.0L182.9,396.6L180.4,394.9L174.3,385.3L160.5,381.4L152.2,373.7L142.9,371.2L138.3,372.8L134.4,355.8L126.3,352.0L129.6,340.8L145.3,337.3L146.7,334.8L150.3,333.3L155.8,328.0L155.8,318.2L153.2,312.8L152.2,300.5L148.3,291.8L156.7,288.6L164.2,294.0L169.4,295.3Z"],["Mardin","M1189.2,458.3L1208.6,456.0L1208.8,458.6L1214.9,466.3L1219.3,474.3L1239.2,474.6L1249.1,472.3L1257.9,462.4L1272.5,456.0L1279.0,466.2L1277.1,471.4L1278.3,477.4L1274.7,480.2L1263.9,482.1L1262.1,483.2L1261.9,485.7L1262.0,496.3L1263.4,500.3L1265.1,501.2L1270.5,499.3L1272.1,502.4L1273.6,509.1L1272.1,516.1L1248.0,521.5L1225.6,522.1L1221.5,523.6L1217.8,520.8L1200.7,517.6L1195.7,517.6L1193.0,519.3L1187.6,517.9L1169.3,527.3L1160.9,529.1L1146.7,538.4L1141.0,535.3L1137.1,527.7L1135.8,516.9L1122.2,488.6L1117.6,474.4L1128.2,474.4L1134.2,471.1L1142.9,473.3L1148.7,473.1L1159.4,465.4L1167.0,465.0L1168.4,462.5L1169.1,456.7L1173.6,451.2L1177.2,453.4L1182.5,453.8L1185.3,457.0L1189.2,458.3Z"],["Mersin","M624.1,617.1L624.4,617.8L624.0,618.1L624.2,617.6L624.1,617.1ZM636.9,613.9L637.1,614.0L637.1,614.1L636.6,613.9L636.9,613.9ZM643.4,609.9L643.3,611.6L641.7,611.8L642.1,611.0L643.4,609.9ZM647.2,603.1L647.3,603.3L647.1,603.5L647.0,603.3L647.2,603.1ZM731.7,517.0L733.2,522.3L738.3,525.9L742.5,533.0L743.7,546.7L741.0,552.9L734.4,554.6L731.3,557.6L726.9,552.0L719.9,549.0L711.4,549.2L704.1,553.2L702.9,555.7L697.3,559.2L694.0,563.6L682.2,571.4L673.7,583.3L670.0,584.9L669.2,587.5L666.7,589.0L666.2,598.2L664.0,600.5L660.3,599.6L658.7,602.4L660.4,601.4L660.5,601.5L657.7,606.8L655.7,601.0L650.5,598.4L647.5,601.5L648.2,602.5L646.2,602.6L645.7,606.0L637.1,612.6L636.3,614.1L637.2,615.7L636.5,616.5L635.1,615.4L636.0,614.2L634.1,614.0L634.2,611.3L633.2,610.6L628.9,612.3L626.5,617.5L619.7,614.1L613.5,617.5L610.2,614.6L605.3,617.1L594.2,616.2L592.6,617.0L589.2,623.0L586.9,620.5L579.0,619.6L572.7,622.9L567.6,628.5L557.9,626.2L549.1,620.0L551.8,616.1L554.3,607.4L555.4,601.4L554.6,591.6L556.3,585.4L570.5,586.7L587.1,583.1L599.4,577.7L600.8,574.1L599.8,571.6L590.4,566.6L586.0,562.3L579.9,549.1L591.9,544.8L608.4,532.4L613.6,529.9L624.0,529.7L631.1,525.4L635.7,525.3L640.4,527.3L647.9,525.0L659.3,517.5L671.3,515.7L685.4,507.8L686.4,505.8L698.7,499.0L700.5,496.7L700.2,495.1L707.2,494.9L715.5,490.4L721.4,490.4L731.7,517.0Z"],["Muğla","M276.7,575.8L276.8,575.9L276.7,576.1L276.6,576.0L276.7,575.8ZM277.6,574.5L277.9,574.7L277.0,574.6L277.1,574.5L277.6,574.5ZM197.1,574.1L197.1,574.5L197.0,574.5L197.0,574.3L197.1,574.1ZM197.4,573.7L197.3,573.9L197.1,573.9L197.1,573.7L197.4,573.7ZM204.2,569.9L204.3,570.4L203.8,570.2L203.8,570.1L204.2,569.9ZM198.7,568.1L198.8,568.3L198.4,568.7L198.6,568.1L198.7,568.1ZM198.4,567.3L198.4,567.4L198.5,567.7L198.2,567.6L198.4,567.3ZM253.6,567.1L253.7,567.3L253.5,567.4L253.4,567.3L253.6,567.1ZM198.5,565.0L198.9,565.1L199.0,565.3L198.1,565.2L198.5,565.0ZM280.2,564.7L279.7,565.4L279.6,565.4L279.6,564.7L280.2,564.7ZM156.2,563.7L156.4,563.9L156.2,564.5L156.0,564.1L156.2,563.7ZM275.6,563.5L276.2,564.0L275.4,564.8L275.2,563.8L275.6,563.5ZM195.4,563.0L195.4,563.3L195.3,563.3L195.2,563.0L195.4,563.0ZM263.9,563.0L264.8,563.5L264.8,564.9L263.4,563.4L263.9,563.0ZM197.1,562.9L197.9,564.4L197.5,565.0L196.4,564.0L197.1,562.9ZM274.3,562.8L274.8,563.1L274.8,563.3L274.3,563.2L274.3,562.8ZM197.6,562.7L197.5,563.1L197.4,563.2L197.3,562.8L197.6,562.7ZM265.5,561.8L267.3,562.6L265.4,564.6L265.0,562.8L265.5,561.8ZM197.7,561.8L197.6,561.7L197.8,561.7L197.8,561.7L197.7,561.8ZM248.5,560.5L248.5,560.7L247.9,560.8L248.1,560.6L248.5,560.5ZM266.8,560.3L266.9,560.5L266.7,560.6L266.6,560.4L266.8,560.3ZM272.5,560.1L273.1,560.4L273.0,560.7L272.5,560.6L272.5,560.1ZM266.4,560.0L266.6,560.3L266.2,560.7L266.0,560.1L266.4,560.0ZM193.4,559.5L193.5,559.7L193.5,559.9L193.3,559.8L193.4,559.5ZM266.9,559.1L267.0,559.6L266.7,560.1L266.8,559.3L266.9,559.1ZM194.1,559.0L194.1,559.1L194.0,559.3L193.9,559.1L194.1,559.0ZM266.8,558.8L266.8,559.2L266.7,559.3L266.5,559.0L266.8,558.8ZM213.6,558.5L213.5,558.8L213.1,558.6L213.3,558.5L213.6,558.5ZM194.4,558.0L194.6,558.2L194.6,558.7L194.3,558.2L194.4,558.0ZM196.9,557.3L196.8,558.2L195.4,558.8L195.5,557.8L196.9,557.3ZM198.3,556.5L198.8,556.7L199.3,556.5L199.5,556.6L199.0,557.3L197.8,557.5L198.3,556.5ZM267.3,556.3L268.1,557.5L267.2,558.2L266.9,557.6L267.3,556.3ZM148.1,555.7L148.7,556.1L148.7,556.2L148.0,555.9L148.1,555.7ZM191.4,554.7L191.7,554.8L191.6,555.0L191.4,555.0L191.4,554.7ZM178.1,554.7L178.1,554.8L178.0,554.9L178.0,554.8L178.1,554.7ZM176.0,554.7L175.8,554.8L175.6,554.9L175.6,554.7L176.0,554.7ZM176.9,554.3L176.9,554.7L176.7,554.8L176.7,554.5L176.9,554.3ZM179.3,553.9L179.4,554.1L179.1,554.2L179.2,554.0L179.3,553.9ZM198.9,553.8L198.8,554.1L198.6,554.0L198.7,553.8L198.9,553.8ZM197.0,553.8L197.2,553.9L197.2,554.0L196.9,554.0L197.0,553.8ZM203.9,553.7L204.2,553.8L204.1,554.0L203.9,553.9L203.9,553.7ZM153.0,552.9L153.1,553.1L153.1,553.2L152.9,553.0L153.0,552.9ZM152.4,552.5L152.7,552.8L152.7,552.9L152.2,552.7L152.4,552.5ZM228.6,552.3L228.7,552.8L227.8,553.0L228.2,552.2L228.6,552.3ZM240.8,550.2L240.7,550.5L240.6,550.4L240.6,550.3L240.8,550.2ZM214.4,549.0L214.5,550.2L213.2,549.2L214.0,549.3L214.4,549.0ZM216.7,547.9L216.7,548.1L215.9,548.0L215.9,547.9L216.7,547.9ZM228.9,543.5L228.9,543.7L228.9,543.8L228.8,543.7L228.9,543.5ZM196.3,543.1L196.4,543.4L195.7,543.2L195.7,543.2L196.3,543.1ZM197.2,542.8L197.2,543.0L196.8,543.2L197.0,542.9L197.2,542.8ZM197.6,542.3L197.8,542.4L197.8,542.5L197.6,542.7L197.6,542.3ZM197.0,541.4L197.1,541.6L197.0,541.7L196.9,541.5L197.0,541.4ZM206.4,536.2L206.5,536.5L206.3,536.7L206.2,536.4L206.4,536.2ZM206.3,535.4L206.5,535.5L206.4,535.6L206.3,535.6L206.3,535.4ZM140.4,534.8L140.4,534.9L140.2,535.0L140.2,534.8L140.4,534.8ZM209.7,533.6L209.8,534.1L209.0,534.2L209.3,533.8L209.7,533.6ZM161.6,532.3L161.5,532.2L161.8,532.1L161.7,532.2L161.6,532.3ZM167.5,532.0L167.7,532.1L167.7,532.2L167.5,532.1L167.5,532.0ZM162.4,532.0L163.2,532.5L163.4,533.3L162.6,533.2L162.4,532.0ZM134.6,531.3L134.7,531.4L134.7,531.8L134.4,531.7L134.6,531.3ZM131.9,530.6L132.1,530.7L132.0,530.8L131.8,530.8L131.9,530.6ZM210.3,530.4L210.6,530.9L209.9,530.9L210.0,530.7L210.3,530.4ZM149.8,530.2L154.2,532.2L154.9,533.3L153.6,534.2L151.2,533.0L149.8,530.2ZM210.5,530.0L210.6,530.3L210.2,530.2L210.2,530.0L210.5,530.0ZM146.5,529.8L146.6,530.3L146.4,531.0L146.1,530.5L146.5,529.8ZM213.0,529.7L213.1,529.8L212.8,529.8L212.8,529.7L213.0,529.7ZM130.6,529.4L130.8,529.4L130.8,529.5L130.6,529.6L130.6,529.4ZM144.6,528.9L144.7,529.2L144.5,529.4L144.3,529.0L144.6,528.9ZM133.7,528.7L134.0,529.2L132.5,530.4L132.4,530.1L133.7,528.7ZM132.4,524.9L132.4,525.4L132.0,525.1L132.1,524.9L132.4,524.9ZM133.2,521.0L133.2,521.6L132.4,521.8L132.7,521.1L133.2,521.0ZM135.0,520.9L135.3,521.1L135.3,521.2L134.6,521.1L135.0,520.9ZM153.5,517.6L153.3,518.2L153.1,518.2L153.0,518.0L153.5,517.6ZM154.0,516.9L153.9,517.5L153.6,517.5L153.7,517.1L154.0,516.9ZM136.5,516.6L136.6,516.7L136.6,516.9L136.4,516.8L136.5,516.6ZM147.2,516.0L146.8,516.4L146.5,516.2L146.5,516.0L147.2,516.0ZM157.9,513.5L157.7,515.9L154.6,515.9L155.0,514.3L157.9,513.5ZM144.8,512.5L146.0,513.2L146.0,513.7L145.1,513.8L144.8,512.5ZM144.2,512.3L144.5,512.4L144.6,512.6L144.1,512.8L144.2,512.3ZM157.1,510.3L157.2,510.3L157.2,510.4L156.9,510.3L157.1,510.3ZM159.3,509.7L159.5,509.9L159.5,510.2L159.4,510.2L159.3,509.7ZM159.3,504.6L160.4,505.3L160.4,505.5L159.2,504.9L159.3,504.6ZM160.1,504.5L160.2,504.6L160.2,504.7L160.0,504.6L160.1,504.5ZM145.3,501.7L145.0,502.0L144.8,502.0L145.1,501.5L145.3,501.7ZM231.5,480.6L241.6,482.4L242.1,490.9L252.1,494.5L255.4,505.6L266.4,509.3L274.6,515.6L276.9,519.6L276.4,522.5L277.9,525.2L278.4,530.8L286.8,541.3L292.7,541.5L297.6,534.1L298.2,525.9L302.1,522.4L303.7,527.5L302.8,535.0L306.7,533.6L311.8,527.6L314.5,527.2L320.5,530.2L324.6,536.7L324.3,542.5L319.0,552.1L316.6,568.5L297.1,586.2L297.5,589.8L294.8,598.8L292.4,599.9L289.6,597.1L284.8,595.9L282.7,594.0L283.3,592.2L279.9,591.3L280.0,589.5L282.2,588.4L281.2,587.5L282.4,587.2L281.7,583.8L279.8,582.5L281.8,580.3L281.8,575.8L280.7,574.5L279.5,575.5L278.7,573.5L275.8,574.2L276.2,576.1L272.7,575.7L275.6,574.2L273.7,571.4L275.1,568.0L277.9,568.6L278.0,565.4L279.9,565.9L279.0,568.0L281.0,567.3L281.5,565.3L280.0,562.9L276.2,561.8L274.6,559.2L273.0,559.6L273.6,558.5L271.7,559.2L269.7,556.9L269.3,557.8L266.5,554.5L266.6,556.6L263.8,558.8L265.0,559.5L261.5,560.3L261.8,562.9L260.4,563.7L261.6,564.6L260.4,565.7L261.9,566.7L262.7,565.1L264.8,566.0L261.8,567.8L262.3,569.8L260.0,571.2L258.3,567.4L260.4,566.2L258.8,566.1L257.9,564.1L256.0,565.0L257.0,563.1L255.7,561.4L250.9,558.8L246.4,560.8L246.6,559.4L244.6,557.8L243.5,560.0L242.3,559.7L242.8,557.2L241.5,556.6L243.5,554.5L241.9,554.1L243.3,551.8L240.0,548.5L237.0,547.0L236.9,548.6L235.4,549.3L235.9,551.4L232.3,550.1L233.0,548.2L230.2,548.9L229.3,545.4L230.8,543.8L229.7,542.1L227.9,544.2L225.9,544.6L225.6,543.3L223.8,545.2L224.4,546.5L227.5,546.4L225.2,551.5L218.5,548.3L217.7,549.6L218.7,550.5L216.5,551.0L214.9,548.6L218.6,548.2L218.8,547.3L215.9,544.8L214.4,545.4L212.4,549.6L214.2,550.8L213.6,552.7L215.1,553.4L215.2,555.3L217.0,555.1L217.9,557.0L216.7,558.0L214.6,556.7L211.8,559.8L211.7,561.2L207.0,561.6L202.5,570.8L201.2,571.8L199.4,570.5L196.3,573.9L195.1,572.4L195.7,573.5L192.6,574.6L191.6,572.0L192.6,571.4L190.9,569.9L199.1,569.5L201.7,565.4L199.9,564.0L200.0,564.2L199.5,565.8L198.7,566.5L199.6,564.4L198.4,564.2L199.9,562.5L198.2,562.7L197.5,560.7L197.4,562.6L196.2,563.2L191.4,561.6L194.4,559.6L197.6,559.6L199.0,557.7L201.9,557.3L200.9,558.2L202.0,559.5L203.0,557.2L204.3,557.4L200.9,555.7L203.0,552.5L204.3,554.6L204.7,554.3L203.6,549.7L200.7,550.4L200.4,552.5L198.3,554.0L197.9,551.5L195.4,554.2L190.9,553.9L188.9,555.8L188.1,554.5L186.1,554.3L186.4,555.8L185.8,555.9L184.8,554.2L183.3,555.9L180.0,553.7L173.4,553.7L169.9,557.5L170.7,558.9L169.1,560.0L169.3,564.2L161.1,561.5L160.2,562.8L156.5,562.3L153.6,565.3L153.0,563.8L148.0,563.8L147.8,562.0L144.8,561.5L145.6,561.0L144.8,559.0L147.5,560.0L149.3,558.7L149.8,555.2L151.4,555.5L152.7,553.8L153.8,555.0L164.0,553.6L166.3,548.9L170.7,551.5L176.6,551.2L180.8,548.7L196.8,551.2L199.0,549.9L199.3,547.9L198.6,546.6L194.5,546.5L196.6,546.3L196.7,546.1L194.3,544.7L198.9,542.1L197.4,541.6L198.2,540.3L195.4,539.4L197.7,539.0L195.9,537.4L202.0,536.0L205.1,536.5L205.6,538.1L206.6,537.3L206.7,539.2L207.3,539.3L207.6,536.0L206.6,535.5L210.3,534.8L209.9,533.1L211.1,532.3L209.6,531.8L211.0,531.5L211.0,530.1L213.8,531.0L213.3,529.7L215.1,528.3L220.0,526.8L219.4,524.8L207.0,527.2L202.1,526.5L203.3,528.5L202.0,528.8L201.1,527.1L192.6,526.8L190.1,528.4L188.5,526.9L182.1,528.2L178.7,530.5L177.7,529.4L177.3,530.8L169.8,529.7L166.9,530.2L166.0,532.2L161.2,530.6L160.4,532.5L156.9,530.5L154.1,531.4L149.5,526.4L148.6,528.3L147.3,527.1L145.8,530.1L146.3,527.3L142.3,528.5L143.0,530.2L139.9,532.7L140.2,534.3L137.0,533.6L136.0,526.9L134.1,524.2L135.1,521.7L139.4,518.9L136.4,518.8L136.4,516.9L137.1,518.0L137.8,515.9L140.8,518.5L141.7,514.1L143.2,515.0L143.4,517.0L144.9,514.3L146.9,515.5L145.8,516.6L146.6,518.0L150.0,517.2L153.2,521.9L158.3,517.1L161.8,516.3L161.3,516.1L159.9,516.7L159.3,516.4L160.2,514.5L158.7,514.6L159.0,511.6L157.5,510.6L159.7,510.7L160.9,508.8L162.7,510.7L161.2,512.1L163.2,510.4L164.0,511.3L164.4,511.2L161.3,508.6L164.2,502.0L159.8,502.2L158.6,504.6L159.5,505.5L158.1,504.8L157.5,507.2L156.3,507.2L155.3,506.3L157.2,505.0L156.9,502.3L151.9,504.5L155.2,498.4L153.7,495.6L153.2,498.1L151.0,499.8L148.6,499.5L146.5,497.2L146.4,494.3L148.7,491.6L150.2,491.9L148.9,487.8L151.2,479.4L154.6,473.3L156.7,472.6L170.9,480.3L185.3,484.3L205.9,482.5L211.4,473.8L217.2,471.3L231.5,480.6Z"],["Muş","M1338.8,313.6L1342.1,336.0L1335.5,337.3L1325.9,335.7L1320.3,337.3L1307.8,336.1L1293.2,343.0L1293.1,347.5L1284.1,347.7L1282.2,349.0L1282.3,351.4L1286.5,357.1L1286.7,360.5L1277.7,368.2L1271.7,371.0L1253.7,369.9L1248.9,371.5L1245.2,375.8L1236.1,377.4L1234.2,375.3L1235.2,369.5L1234.0,366.4L1226.3,359.4L1216.7,340.1L1217.2,337.9L1225.9,327.0L1225.9,318.9L1223.0,314.6L1220.5,313.6L1217.9,301.1L1219.8,295.8L1224.4,293.1L1234.6,291.6L1239.0,293.3L1246.1,297.8L1256.0,310.0L1260.0,312.5L1268.9,313.9L1288.1,307.8L1299.3,297.8L1299.4,295.4L1297.3,291.8L1300.0,288.0L1307.7,284.1L1318.3,281.4L1322.2,292.0L1331.1,302.7L1334.3,304.6L1338.8,313.6Z"],["Nevşehir","M727.1,293.6L732.2,296.5L730.2,307.3L738.0,315.9L738.5,320.3L741.2,326.2L738.4,329.0L734.7,350.2L743.7,355.2L743.7,368.6L739.7,373.5L732.5,376.4L731.1,381.0L732.0,390.2L728.7,393.5L722.1,394.8L712.7,389.1L702.5,392.4L696.2,390.0L687.6,382.7L682.0,368.4L677.6,364.5L676.6,360.9L681.0,350.6L684.1,348.4L685.0,343.2L687.0,341.4L693.8,342.4L697.3,341.3L697.5,338.2L701.0,330.9L705.4,327.0L704.7,322.1L710.0,320.3L709.2,312.6L714.4,308.0L713.9,303.0L719.2,294.8L717.0,293.9L712.0,298.2L707.9,297.3L708.0,291.9L711.6,281.3L722.1,286.9L722.3,291.0L727.1,293.6Z"],["Niğde","M701.6,392.4L712.7,389.1L721.6,394.6L724.3,394.9L730.8,392.3L732.3,386.8L736.8,387.0L743.0,401.6L747.8,404.1L757.2,404.8L760.0,407.9L762.5,413.7L762.4,426.9L758.9,434.1L756.2,435.2L754.6,438.1L755.3,445.8L753.7,448.6L741.6,459.8L728.7,458.9L725.4,460.8L724.0,464.2L727.3,472.1L727.5,477.5L721.8,483.5L721.4,490.4L714.7,490.6L706.6,495.0L700.2,495.1L697.0,489.1L692.8,485.0L690.4,484.6L690.2,479.4L695.8,465.2L695.8,460.4L681.3,438.5L670.3,428.6L672.0,424.8L675.1,423.0L681.4,424.4L686.2,416.5L691.1,413.4L691.2,405.7L688.8,400.9L689.2,393.2L691.2,386.1L701.6,392.4Z"],["Ordu","M907.0,115.2L916.5,115.4L916.5,117.6L923.9,119.3L935.4,127.9L941.0,125.2L946.8,116.3L948.5,118.6L954.8,118.3L954.1,123.8L956.5,127.4L961.0,128.4L962.0,131.3L980.9,134.3L972.1,155.2L980.5,168.8L983.5,179.1L973.4,188.6L963.8,190.5L958.2,195.6L952.1,197.0L948.7,194.8L940.7,174.5L930.0,173.7L920.7,167.3L918.0,167.2L916.6,163.3L908.3,159.6L899.8,161.1L891.8,159.7L888.4,156.1L882.1,155.0L869.5,148.4L870.1,145.4L879.9,142.0L886.3,137.6L893.4,125.4L905.6,118.5L905.4,115.2L907.0,115.2Z"],["Osmaniye","M841.5,495.2L854.0,493.1L861.3,489.5L866.6,497.0L872.6,502.4L857.4,519.3L850.4,534.7L843.0,534.5L835.8,529.1L819.2,527.4L820.6,517.6L816.1,512.6L806.3,517.8L804.6,517.1L808.6,509.2L806.8,505.8L807.0,494.0L817.8,473.8L827.7,466.5L839.5,464.9L832.5,480.0L835.1,492.9L841.5,495.2Z"],["Rize","M1221.7,100.5L1223.8,104.4L1224.4,109.1L1228.4,114.5L1233.2,118.0L1236.4,118.3L1237.5,120.7L1236.6,123.1L1231.3,126.3L1214.1,149.2L1208.2,153.7L1191.2,164.6L1164.4,176.5L1164.1,167.1L1166.6,161.0L1166.6,155.9L1163.1,142.8L1159.6,135.8L1152.9,130.5L1157.1,127.3L1165.6,125.9L1169.5,127.2L1182.9,121.2L1189.3,113.7L1204.4,110.5L1209.8,108.0L1216.5,101.7L1221.7,100.5Z"],["Sakarya","M378.4,112.1L400.4,117.1L408.4,121.4L425.6,122.7L430.2,128.4L428.1,133.9L420.2,140.3L417.6,146.5L419.1,152.1L426.4,158.1L423.5,163.0L423.1,173.3L420.5,176.1L415.1,177.8L402.3,178.2L395.8,186.0L400.0,191.5L398.2,196.5L379.1,189.8L359.3,193.0L347.8,182.8L344.2,174.1L343.9,172.2L351.8,172.0L368.5,166.4L373.0,154.4L372.3,147.9L379.0,143.6L377.9,135.0L372.1,128.0L374.6,119.9L378.9,116.2L378.4,112.1ZM378.4,112.1L378.4,112.1L378.4,112.1L378.4,112.1Z"],["Samsun","M896.3,110.2L896.2,110.1L896.2,110.1L896.3,110.1L896.3,110.2ZM895.8,109.9L896.0,110.0L896.1,110.1L896.0,110.1L895.8,109.9ZM866.9,92.1L867.3,92.0L867.4,92.5L867.2,92.5L866.9,92.1ZM866.9,92.1L867.1,93.5L867.4,93.5L867.5,92.3L867.3,91.9L882.9,95.9L893.4,101.6L895.6,104.3L895.1,108.6L896.2,111.2L905.4,115.2L905.6,118.5L893.8,125.0L886.3,137.6L879.9,142.0L870.1,145.4L870.4,141.9L867.1,140.1L851.3,143.2L845.2,139.2L844.9,134.8L834.4,131.9L831.9,132.0L830.5,138.8L828.7,141.0L819.7,145.7L812.5,142.4L803.6,143.6L792.3,142.1L788.3,137.3L775.5,128.6L745.5,120.9L737.3,122.2L735.2,118.6L733.7,109.8L729.9,104.6L733.4,99.2L747.1,92.4L756.2,103.7L764.0,105.1L767.9,103.6L771.0,100.6L773.4,94.2L770.7,83.0L776.0,71.3L777.1,65.8L782.2,66.9L789.1,65.9L812.4,56.5L820.4,61.2L824.9,67.4L826.3,83.9L834.8,94.6L843.6,99.0L842.5,98.8L842.2,100.6L845.7,102.7L846.0,104.5L850.2,105.5L856.0,104.0L860.1,101.2L864.2,93.3L866.9,92.1Z"],["Şanlıurfa","M1069.8,430.2L1083.4,431.5L1100.6,446.0L1108.3,446.7L1115.5,454.2L1116.1,469.6L1117.8,477.1L1135.8,516.9L1137.3,528.2L1141.0,535.3L1146.7,538.4L1114.6,554.5L1066.8,563.5L1050.7,559.7L1028.3,559.3L1015.2,546.1L1002.4,540.3L986.5,539.3L972.3,547.5L972.3,536.4L962.2,524.3L958.6,510.9L958.2,505.6L959.6,498.8L966.5,489.6L971.6,485.9L984.6,489.3L997.1,481.6L1008.6,481.1L1019.3,472.2L1035.4,466.0L1036.7,464.1L1036.0,460.7L1045.8,454.5L1047.4,450.5L1047.4,441.0L1053.8,431.8L1063.0,426.9L1069.8,430.2Z"],["Siirt","M1313.1,416.8L1321.0,419.0L1338.8,428.8L1347.2,423.4L1356.5,424.8L1358.7,427.0L1363.0,436.3L1359.1,444.5L1358.9,449.1L1341.7,446.6L1335.2,442.2L1329.2,442.1L1320.6,446.4L1314.2,455.2L1307.7,460.3L1294.7,461.8L1279.8,460.5L1273.7,457.1L1271.2,453.7L1263.2,455.7L1259.0,452.2L1261.9,447.4L1261.4,444.5L1244.9,444.2L1239.7,441.6L1236.5,438.2L1238.2,434.4L1241.9,431.4L1242.0,427.9L1251.7,426.2L1254.8,419.8L1257.0,410.5L1275.8,415.2L1280.7,414.4L1284.3,417.1L1289.7,409.9L1298.4,408.3L1303.3,409.9L1313.1,416.8Z"],["Sinop","M734.0,20.2L739.6,20.7L742.3,24.0L741.7,25.8L744.3,27.3L753.3,26.0L754.3,28.7L749.2,27.7L745.7,33.4L745.3,37.8L748.4,44.1L754.4,49.7L753.3,50.8L754.5,53.3L758.9,56.2L759.7,58.4L770.5,61.6L777.1,65.8L776.0,71.3L770.7,83.0L773.5,93.7L769.4,102.7L764.0,105.1L756.2,103.7L747.1,92.4L733.4,99.2L726.2,110.4L701.1,102.3L697.5,99.6L696.7,75.9L704.6,70.8L706.9,66.5L707.1,63.1L698.9,57.5L681.5,56.1L681.3,49.5L678.1,42.6L678.2,34.5L684.7,35.9L698.7,32.3L700.0,34.2L708.6,35.8L722.6,34.5L731.1,27.6L734.3,22.6L734.0,20.2Z"],["Şırnak","M1342.3,446.7L1358.9,449.1L1364.2,453.6L1372.2,453.8L1384.7,457.2L1398.5,457.3L1393.9,477.7L1393.8,495.1L1398.9,503.2L1388.8,497.1L1385.3,499.6L1373.0,492.6L1363.0,494.5L1358.0,498.3L1348.3,495.3L1346.9,492.8L1344.4,492.3L1339.1,495.5L1340.1,498.2L1336.6,499.5L1336.7,501.5L1333.9,503.8L1328.3,515.3L1324.0,515.1L1310.6,519.1L1308.3,511.4L1310.1,507.2L1305.2,501.9L1299.5,502.3L1300.3,498.3L1286.7,511.1L1272.1,516.1L1273.6,509.1L1271.2,499.8L1265.1,501.2L1263.1,499.9L1262.0,496.3L1262.1,483.2L1274.7,480.2L1278.3,477.4L1277.1,471.4L1279.0,466.2L1273.7,457.1L1283.9,461.8L1306.5,460.6L1314.2,455.2L1320.6,446.4L1328.6,442.3L1335.2,442.2L1342.3,446.7Z"],["Sivas","M988.6,196.2L990.6,209.7L996.0,214.2L1006.6,220.2L1015.8,218.4L1031.6,225.1L1029.9,232.8L1027.7,234.3L1006.2,233.1L1003.6,235.5L999.9,244.2L1001.3,247.3L1012.0,245.2L1014.5,247.3L1012.0,250.3L1006.1,251.7L1005.6,254.3L1003.6,255.4L999.8,262.2L998.6,276.3L1002.2,288.9L1001.7,311.3L999.0,316.0L992.7,317.4L985.5,322.7L966.7,324.1L954.4,329.9L939.4,329.0L936.6,334.1L936.7,337.4L940.1,346.3L938.3,352.4L919.1,369.1L898.4,372.2L893.3,368.5L887.5,367.2L872.9,370.9L874.9,362.6L889.4,324.3L887.3,319.3L884.3,316.2L876.4,312.5L863.8,312.4L851.7,317.0L845.1,314.7L839.9,317.0L820.5,316.9L813.0,311.2L807.1,302.4L801.4,300.1L803.4,296.2L814.3,287.7L821.1,279.8L821.4,276.3L828.2,262.3L825.5,260.7L825.6,255.4L821.4,251.7L819.7,244.7L813.3,240.0L814.9,235.4L825.2,235.4L833.6,232.2L839.8,234.3L850.4,235.0L863.1,230.7L868.8,226.4L871.3,221.0L870.5,215.8L876.1,207.6L891.2,211.8L899.7,207.7L906.8,211.0L927.5,214.7L930.4,206.2L937.2,202.4L936.9,198.2L939.0,195.2L939.4,189.2L944.1,185.0L949.0,195.2L953.7,197.1L958.2,195.6L963.8,190.5L973.4,188.6L983.5,179.1L985.6,183.4L988.6,196.2Z"],["Tekirdağ","M205.9,71.9L208.5,72.8L209.8,75.2L208.2,77.0L212.3,80.1L206.2,105.3L201.1,108.9L198.7,114.9L203.9,124.0L195.4,126.6L193.2,128.7L193.3,130.9L190.9,132.3L191.5,133.4L184.8,133.5L181.9,130.8L175.9,128.6L156.3,132.6L152.5,140.4L152.0,145.5L143.4,153.3L140.6,159.8L130.4,167.3L118.9,170.9L118.8,160.1L119.9,155.2L118.2,150.5L114.2,150.0L106.1,155.3L102.9,155.7L99.8,155.4L95.7,149.7L95.6,139.7L99.7,130.0L96.7,126.5L97.0,122.9L98.9,119.9L108.2,116.1L111.7,111.1L111.8,106.3L108.5,100.6L108.7,95.7L112.9,97.5L125.9,95.2L136.9,95.3L145.9,99.0L153.3,107.4L157.1,107.9L159.6,106.3L166.6,95.1L168.9,89.0L169.0,84.2L173.4,80.6L176.4,79.1L183.9,79.9L192.6,75.7L205.9,71.9Z"],["Tokat","M870.4,141.9L869.2,147.3L870.2,149.1L882.1,155.0L888.4,156.1L891.5,159.6L899.8,161.1L908.3,159.6L916.6,163.3L918.0,167.2L920.7,167.3L930.0,173.7L941.3,174.9L944.1,185.0L939.4,189.2L939.0,195.2L936.9,198.2L937.2,202.4L930.4,206.2L927.5,214.7L906.8,211.0L899.7,207.7L891.2,211.8L876.1,207.6L870.5,215.8L871.3,221.2L867.6,228.3L850.4,235.0L839.8,234.3L833.6,232.2L825.2,235.4L814.9,235.4L813.2,231.3L813.0,225.7L811.1,222.0L787.5,221.3L778.1,211.0L779.4,206.4L783.1,202.6L793.9,197.4L803.9,179.8L812.8,179.8L819.1,184.0L828.0,185.5L841.3,177.6L851.4,164.4L852.7,157.9L848.4,147.7L850.8,143.0L854.8,143.4L864.1,140.1L870.4,141.9Z"],["Trabzon","M1081.8,119.2L1086.9,120.8L1093.1,127.4L1098.9,130.0L1105.0,128.8L1109.8,129.7L1117.0,134.6L1129.6,134.0L1136.2,138.8L1144.8,137.2L1152.9,130.5L1155.3,131.5L1159.3,135.4L1162.9,142.3L1166.6,155.9L1166.6,161.0L1164.1,167.1L1164.4,176.5L1144.4,179.9L1134.1,178.8L1135.3,172.9L1130.0,166.2L1127.2,164.1L1125.4,165.4L1124.9,167.7L1126.5,171.3L1125.4,173.5L1123.1,173.7L1118.4,168.5L1113.5,167.9L1114.4,160.8L1111.8,158.3L1108.7,162.5L1105.7,171.9L1101.7,174.1L1073.0,163.1L1059.9,151.1L1058.3,144.6L1058.4,134.0L1063.0,122.6L1071.2,125.0L1081.8,119.2Z"],["Tunceli","M1147.9,275.4L1169.1,275.2L1167.0,279.6L1152.9,287.3L1157.2,291.7L1152.7,294.8L1142.6,301.1L1134.5,298.6L1129.3,309.5L1130.3,315.0L1129.2,318.5L1127.6,321.0L1120.8,321.2L1116.7,325.2L1118.6,330.7L1118.4,335.8L1114.4,343.4L1109.7,348.2L1098.1,349.8L1087.3,355.1L1052.9,340.7L1044.6,340.6L1037.1,342.8L1031.2,340.1L1032.2,330.7L1027.9,318.4L1031.5,311.8L1040.9,308.7L1043.4,305.0L1036.2,304.2L1033.1,302.0L1036.2,297.1L1046.5,292.4L1056.7,283.8L1074.3,280.0L1086.3,282.3L1095.5,281.2L1097.0,285.4L1100.8,285.9L1103.4,284.8L1109.0,278.2L1115.6,275.5L1118.0,275.0L1125.8,278.1L1137.0,274.3L1147.9,275.4Z"],["Uşak","M341.4,352.2L341.5,359.0L339.8,365.6L332.0,379.4L330.7,384.6L324.4,388.1L322.4,395.6L318.2,402.8L316.8,410.8L314.3,410.5L305.1,403.8L289.2,410.4L279.5,408.2L265.9,403.5L258.4,394.5L260.8,391.1L259.6,377.4L260.3,371.9L262.6,366.3L273.8,357.5L279.1,356.1L290.2,356.7L295.7,351.8L324.0,341.0L339.0,344.5L341.4,352.2Z"],["Van","M1386.6,290.2L1393.2,291.1L1398.0,296.9L1405.5,301.2L1410.2,299.8L1415.7,293.0L1434.8,294.3L1440.3,292.8L1444.6,297.1L1444.6,300.3L1446.4,301.4L1445.3,304.6L1446.7,306.1L1446.5,309.8L1454.7,316.1L1455.8,320.0L1452.2,318.4L1449.5,320.8L1453.3,323.1L1454.7,327.1L1451.8,330.6L1455.1,340.8L1457.6,344.5L1460.3,344.5L1462.3,346.6L1462.5,350.0L1459.3,358.4L1461.1,362.8L1459.9,365.3L1463.9,367.7L1463.1,375.0L1464.1,379.7L1462.4,385.8L1462.4,391.5L1467.8,393.6L1473.2,391.5L1476.7,394.6L1477.3,397.2L1470.9,402.2L1469.4,404.9L1470.1,409.0L1469.2,415.5L1466.0,417.3L1467.2,420.2L1465.1,420.1L1462.8,423.0L1462.1,427.0L1457.7,434.0L1458.4,436.1L1456.3,441.3L1459.2,443.4L1464.1,442.6L1470.1,444.6L1469.9,447.8L1472.2,450.2L1474.3,450.2L1473.7,453.2L1482.4,453.3L1475.0,462.5L1470.5,465.3L1463.3,464.4L1456.2,467.2L1454.7,465.7L1456.8,459.1L1455.2,454.6L1453.4,453.1L1442.8,458.2L1435.4,457.3L1429.4,460.0L1421.0,457.4L1412.5,458.5L1384.7,457.2L1372.2,453.8L1363.6,453.5L1358.9,449.1L1359.1,444.5L1363.0,436.3L1358.7,427.0L1356.5,424.8L1347.2,423.4L1342.7,417.3L1344.4,413.2L1341.0,412.5L1338.2,409.6L1339.7,402.3L1335.7,390.5L1335.9,387.2L1339.0,384.2L1351.4,377.5L1355.8,368.6L1357.2,368.2L1364.4,357.7L1373.5,350.6L1375.3,347.2L1375.4,342.0L1369.9,336.7L1360.3,330.9L1361.8,320.5L1371.3,316.4L1373.0,313.4L1372.9,306.0L1366.6,301.6L1366.2,299.2L1367.9,297.8L1374.9,297.2L1382.6,289.8L1386.6,290.2Z"],["Yalova","M302.7,159.8L306.4,160.8L305.5,174.0L300.2,172.0L292.8,174.4L275.5,174.1L272.8,180.3L274.5,182.2L270.1,184.4L262.9,182.1L260.6,179.4L254.9,178.2L255.9,174.8L266.7,170.0L271.3,165.5L293.9,164.0L302.7,159.8Z"],["Yozgat","M765.0,208.3L768.0,210.9L778.1,211.0L787.5,221.3L811.1,222.0L813.0,225.7L813.2,231.3L814.9,235.4L813.3,240.0L819.7,244.7L821.4,251.7L825.6,255.4L825.5,260.7L828.2,262.3L821.4,276.3L821.1,279.8L814.3,287.7L803.4,296.2L800.6,301.3L794.5,307.4L790.4,309.9L781.1,309.7L775.0,311.3L774.3,314.3L775.8,320.0L757.0,329.4L741.2,326.2L738.5,320.3L738.0,315.9L730.2,307.3L732.1,296.2L722.5,291.2L722.1,286.9L709.2,280.6L702.3,275.2L701.1,272.9L702.9,267.8L697.0,262.8L693.7,256.7L688.3,255.1L678.8,256.3L665.9,249.2L664.8,239.5L667.3,238.0L682.2,236.3L691.2,230.8L722.8,230.6L730.9,225.0L742.7,227.0L752.2,220.9L751.3,208.7L760.7,208.6L764.1,207.1L765.0,208.3Z"],["Zonguldak","M506.8,73.7L508.3,77.7L528.9,99.4L532.7,106.2L528.4,106.3L515.6,114.2L512.4,122.4L512.3,128.2L461.5,124.4L453.7,116.3L459.2,108.7L458.7,102.8L459.9,103.7L460.1,102.6L457.8,100.6L458.5,98.4L475.6,91.7L485.6,86.0L486.1,84.5L488.5,84.6L496.9,77.6L506.8,73.7Z"]];
+</script>
+<script>
+(() => {
+  // ---- geo (same projection used to build the province paths) ----
+  const C = Math.cos(39 * Math.PI / 180), K = 100, LON0 = 25.5, LAT0 = 42.3;
+  const toXY = (lat, lng) => [(lng - LON0) * K * C, (LAT0 - lat) * K];
+  const toLL = (x, y) => [LAT0 - y / K, LON0 + x / (K * C)];
+
+  const MOODS = ["Özlem", "Mutluluk", "Hüzün", "Öfke", "Korku", "Umut", "Pişmanlık", "Aşk"];
+  const MONTHS = ["Ocak","Şubat","Mart","Nisan","Mayıs","Haziran","Temmuz","Ağustos","Eylül","Ekim","Kasım","Aralık"];
+  const DOW = ["Pzt","Sal","Çar","Per","Cum","Cmt","Paz"];
+  const MIN_YEAR = 1940;
+  const $ = (id) => document.getElementById(id);
+  const pad = (n) => String(n).padStart(2, "0");
+  const iso = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  const today = new Date(); const TODAY = iso(today);
+  const fmtDate = (s) => { const [y, m, d] = s.split("-").map(Number); return `${d} ${MONTHS[m - 1]} ${y}`; };
+
+  // ---- state ----
+  const S = { memories: [], selDate: TODAY, view: { y: today.getFullYear(), m: today.getMonth() }, mode: "day", selId: null, draft: null, mood: null, photo: null };
+
+  // ---- store: shared artifact db when available, else this browser ----
+  const LS_KEY = "ani-haritasi-v1";
+  const local = {
+    kind: "local",
+    read() { try { return JSON.parse(localStorage.getItem(LS_KEY) || "[]"); } catch { return []; } },
+    subscribe(cb) { this.cb = cb; cb(this.read()); },
+    async add(m, photo) {
+      const all = this.read();
+      try {
+        if (photo) localStorage.setItem(LS_KEY + ":p:" + m.id, photo);
+        all.push(m); localStorage.setItem(LS_KEY, JSON.stringify(all));
+      } catch { throw new Error("Tarayıcı depolaması dolu ya da kapalı. Fotoğrafsız dene."); }
+      this.cb && this.cb(all);
+    },
+    async photo(id) { try { return localStorage.getItem(LS_KEY + ":p:" + id); } catch { return null; } },
+    async remove(id) {
+      const all = this.read().filter((m) => m.id !== id);
+      try { localStorage.setItem(LS_KEY, JSON.stringify(all)); localStorage.removeItem(LS_KEY + ":p:" + id); } catch {}
+      this.cb && this.cb(all);
+    },
+    canRemove: true,
+  };
+  function sharedStore(db, user) {
+    return {
+      kind: "shared",
+      canRemove: false,
+      subscribe(cb) {
+        db.collection("memories").orderBy("createdAt", "desc").limit(1000).onSnapshot(
+          (snap) => cb(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
+          () => { note("Paylaşılan kayıtlara şu an ulaşılamıyor. Sayfayı yenile."); }
+        );
+      },
+      async add(m, photo) {
+        const { id, ...body } = m;
+        if (photo) await db.doc("photos/" + id).set({ data: photo });
+        await db.doc("memories/" + id).set(body);
+      },
+      async photo(id) { const s = await db.doc("photos/" + id).get(); return s.exists ? s.data().data : null; },
+      async remove(id) { await db.doc("memories/" + id).delete(); await db.doc("photos/" + id).delete(); },
+    };
+  }
+  let store = local;
+  const note = (t) => { $("storeNote").textContent = t; };
+
+  async function initStore() {
+    let db = null, user = null;
+    if (window.claude && typeof window.claude.use === "function") {
+      try { [db, user] = await Promise.all([window.claude.use("db"), window.claude.use("user")]); } catch { db = null; }
+    }
+    if (db) {
+      store = sharedStore(db, user);
+      store.canRemove = !!(user && user.isOwner && (await user.isOwner()));
+      note("Anılar herkesle paylaşılır, kimin yazdığı saklanmaz.");
+    } else {
+      store = local;
+      note("Anılar şimdilik yalnızca bu tarayıcıda saklanıyor.");
+    }
+    store.subscribe((list) => { S.memories = list.filter(valid); renderAll(); });
+  }
+  const valid = (m) => m && typeof m.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(m.date) && typeof m.text === "string" && Number.isFinite(m.lat) && Number.isFinite(m.lng);
+
+  // ---- map ----
+  // Two renderers share one interface: "street" (Leaflet + OpenStreetMap, street level) and
+  // "svg" (built-in 81-province outline; used where map tiles cannot load, e.g. claude.ai pages).
+  const NS = "http://www.w3.org/2000/svg";
+  const VB = { w: 1515, h: 668 };
+  const STREET = MAP_MODE === "street" && typeof L !== "undefined";
+  const PREC = STREET ? 10000 : 1000; // ~10 m on the street map, ~100 m on the outline map
+  const round = (v) => Math.round(v * PREC) / PREC;
+
+  // Offline province lookup: point-in-polygon on the projected province paths.
+  const provPolys = PROVINCES.map(([name, d]) => [name, d.split("Z").filter(Boolean).map((r) => r.slice(1).split("L").map((p) => p.split(",").map(Number)))]);
+  function provinceAt(lat, lng) {
+    const [x, y] = toXY(lat, lng);
+    for (const [name, rings] of provPolys) {
+      let inside = false;
+      for (const r of rings) for (let i = 0, j = r.length - 1; i < r.length; j = i++) {
+        const [xi, yi] = r[i], [xj, yj] = r[j];
+        if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) inside = !inside;
+      }
+      if (inside) return name;
+    }
+    return null;
+  }
+
+  function onMapTap(lat, lng, place) {
+    const city = provinceAt(lat, lng);
+    if (!city) { toast("Türkiye sınırları içinde bir yere dokun."); return; }
+    S.draft = { lat: round(lat), lng: round(lng), city, place: place || "" };
+    M.draft();
+    if (!place && STREET) reverseLookup(S.draft);
+    if (!$("composeCard").hidden) { renderPlace(); $("placePop").hidden = true; return; }
+    showPop();
+  }
+  function showPop() {
+    const d = S.draft;
+    $("popWhere").textContent = d.place || d.city;
+    $("popCoords").textContent = `${d.place ? d.city + " · " : ""}${d.lat.toFixed(4)}° K, ${d.lng.toFixed(4)}° D`;
+    $("placePop").hidden = false; positionPop();
+  }
+  function positionPop() {
+    const pop = $("placePop"); if (pop.hidden || !S.draft) return;
+    const [px, py] = M.screen(S.draft.lat, S.draft.lng);
+    const box = $("mapbox").getBoundingClientRect(), w = pop.offsetWidth;
+    pop.style.left = Math.min(box.width - w / 2 - 6, Math.max(w / 2 + 6, px)) + "px";
+    pop.style.top = Math.max(pop.offsetHeight + 20, py) + "px";
+  }
+  window.addEventListener("resize", positionPop);
+  $("popCancel").onclick = () => { S.draft = null; $("placePop").hidden = true; M.draft(); };
+  $("popGo").onclick = () => { $("placePop").hidden = true; openComposer(); };
+
+  // OpenStreetMap Nominatim: search on submit and one reverse lookup per tap (their policy: max 1 request/second, no autocomplete).
+  const NOMI = "https://nominatim.openstreetmap.org";
+  function shortName(r) {
+    const a = r.address || {};
+    const parts = [r.name, a.road || a.pedestrian || a.square, a.suburb || a.neighbourhood || a.quarter, a.town || a.city_district || a.county].filter(Boolean);
+    return [...new Set(parts)].slice(0, 3).join(", ") || (r.display_name || "").split(",").slice(0, 3).join(",");
+  }
+  async function reverseLookup(d) {
+    try {
+      const r = await fetch(`${NOMI}/reverse?format=jsonv2&addressdetails=1&zoom=18&accept-language=tr&lat=${d.lat}&lon=${d.lng}`).then((x) => x.json());
+      if (S.draft !== d || d.place) return;
+      d.place = shortName(r);
+      if (!$("placePop").hidden) showPop();
+      if (!$("composeCard").hidden) renderPlace();
+    } catch { /* offline or blocked: the user can type the place themselves */ }
+  }
+
+  let M;
+  if (STREET) {
+    $("map").setAttribute("hidden", ""); $("lmap").hidden = false; $("search").hidden = false;
+    const map = L.map("lmap", { zoomControl: false, minZoom: 5, maxZoom: 19, maxBounds: [[33.5, 23], [44, 47]], maxBoundsViscosity: 0.8 }).setView([39, 35.2], 6);
+    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> katkıcıları' }).addTo(map);
+    const pinLayer = L.layerGroup().addTo(map), draftLayer = L.layerGroup().addTo(map);
+    map.on("click", (e) => onMapTap(e.latlng.lat, e.latlng.lng));
+    map.on("move zoom", positionPop);
+    $("zin").onclick = () => map.zoomIn();
+    $("zout").onclick = () => map.zoomOut();
+    $("zreset").onclick = () => map.setView([39, 35.2], 6);
+    M = {
+      screen: (lat, lng) => { const p = map.latLngToContainerPoint([lat, lng]); return [p.x, p.y]; },
+      focus: (lat, lng, z) => map.setView([lat, lng], Math.max(map.getZoom(), z || 16)),
+      draft() {
+        draftLayer.clearLayers(); if (!S.draft) return;
+        L.circleMarker([S.draft.lat, S.draft.lng], { radius: 14, className: "draft", interactive: false }).addTo(draftLayer);
+        L.circleMarker([S.draft.lat, S.draft.lng], { radius: 3, className: "draft-dot", interactive: false }).addTo(draftLayer);
+      },
+      pins(list, vis) {
+        pinLayer.clearLayers();
+        for (const m of list) {
+          const sel = m.id === S.selId;
+          const c = L.circleMarker([m.lat, m.lng], { radius: sel ? 10 : 7, className: "pin" + (vis.has(m.id) ? "" : " dim") + (sel ? " sel" : "") });
+          const tipEl = document.createElement("span"); tipEl.textContent = `${m.place || m.city} · ${fmtDate(m.date)}`;
+          c.bindTooltip(tipEl, { direction: "top", offset: [0, -8] });
+          c.on("click", (e) => { L.DomEvent.stopPropagation(e); selectMemory(m.id, true); });
+          c.addTo(pinLayer);
+        }
+      },
+    };
+    $("search").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const q = $("q").value.trim(), out = $("results"); if (q.length < 2) return;
+      out.hidden = false; out.textContent = "Aranıyor…";
+      try {
+        const rs = await fetch(`${NOMI}/search?format=jsonv2&addressdetails=1&countrycodes=tr&limit=6&accept-language=tr&q=${encodeURIComponent(q)}`).then((x) => x.json());
+        out.textContent = "";
+        if (!rs.length) { out.textContent = "Sonuç yok. Daha genel yaz, ör. \"Kadıköy Bahariye\"."; return; }
+        for (const r of rs) {
+          const b = document.createElement("button"); b.type = "button";
+          const nm = shortName(r);
+          b.innerHTML = `<b></b><span></span>`; b.firstChild.textContent = nm; b.lastChild.textContent = r.display_name;
+          b.onclick = () => { out.hidden = true; const lat = +r.lat, lng = +r.lon; map.setView([lat, lng], 18); onMapTap(lat, lng, nm); };
+          out.appendChild(b);
+        }
+      } catch { out.textContent = "Arama şu an yapılamıyor. Haritayı yakınlaştırıp yere doğrudan dokunabilirsin."; }
+    });
+  } else {
+    const svg = $("map"), vp = $("vp"), provG = $("provs");
+    for (const [name, d] of PROVINCES) {
+      const p = document.createElementNS(NS, "path");
+      p.setAttribute("d", d); p.setAttribute("class", "prov"); p.dataset.name = name;
+      provG.appendChild(p);
+    }
+    let T = { s: 1, x: 0, y: 0 };
+    const MAXS = 40;
+    const applyT = () => {
+      vp.setAttribute("transform", `translate(${T.x} ${T.y}) scale(${T.s})`);
+      const r = 7 / T.s;
+      for (const c of $("pins").children) c.setAttribute("r", c.classList.contains("sel") ? r * 1.5 : r);
+      M.draft();
+    };
+    const clampT = () => {
+      T.s = Math.min(MAXS, Math.max(1, T.s));
+      T.x = Math.min(0, Math.max(VB.w - VB.w * T.s, T.x));
+      T.y = Math.min(0, Math.max(VB.h - VB.h * T.s, T.y));
+    };
+    const svgPt = (evt) => { const pt = svg.createSVGPoint(); pt.x = evt.clientX; pt.y = evt.clientY; return pt.matrixTransform(svg.getScreenCTM().inverse()); };
+    const zoomAt = (f, cx, cy) => { const ns = Math.min(MAXS, Math.max(1, T.s * f)); const k = ns / T.s; T.x = cx - (cx - T.x) * k; T.y = cy - (cy - T.y) * k; T.s = ns; clampT(); applyT(); positionPop(); };
+    svg.addEventListener("wheel", (e) => { e.preventDefault(); const p = svgPt(e); zoomAt(e.deltaY < 0 ? 1.25 : 0.8, p.x, p.y); }, { passive: false });
+    $("zin").onclick = () => zoomAt(1.5, VB.w / 2, VB.h / 2);
+    $("zout").onclick = () => zoomAt(1 / 1.5, VB.w / 2, VB.h / 2);
+    $("zreset").onclick = () => { T = { s: 1, x: 0, y: 0 }; applyT(); positionPop(); };
+
+    const pointers = new Map(); let drag = null, pinch = null;
+    svg.addEventListener("pointerdown", (e) => {
+      svg.setPointerCapture(e.pointerId);
+      pointers.set(e.pointerId, svgPt(e));
+      if (pointers.size === 1) drag = { start: svgPt(e), t: { ...T }, moved: false, target: e.target };
+      else { drag = null; const [a, b] = [...pointers.values()]; pinch = { d: Math.hypot(a.x - b.x, a.y - b.y), s: T.s }; }
+    });
+    svg.addEventListener("pointermove", (e) => {
+      if (!pointers.has(e.pointerId)) { hover(e); return; }
+      const p = svgPt(e); pointers.set(e.pointerId, p);
+      if (pointers.size === 2 && pinch) {
+        const [a, b] = [...pointers.values()];
+        const d = Math.hypot(a.x - b.x, a.y - b.y);
+        zoomAt((pinch.s * d / pinch.d) / T.s, (a.x + b.x) / 2, (a.y + b.y) / 2);
+        return;
+      }
+      if (!drag) return;
+      const dx = p.x - drag.start.x, dy = p.y - drag.start.y;
+      if (!drag.moved && Math.hypot(dx, dy) > 6) { drag.moved = true; svg.classList.add("dragging"); }
+      if (drag.moved) { T.x = drag.t.x + dx; T.y = drag.t.y + dy; clampT(); applyT(); positionPop(); drag.start = p; drag.t = { ...T }; }
+    });
+    const endPtr = (e) => {
+      pointers.delete(e.pointerId);
+      if (pointers.size < 2) pinch = null;
+      if (drag && !drag.moved && e.type === "pointerup") tap(drag.target, e);
+      if (pointers.size === 0) { drag = null; svg.classList.remove("dragging"); }
+    };
+    svg.addEventListener("pointerup", endPtr);
+    svg.addEventListener("pointercancel", endPtr);
+    svg.addEventListener("pointerleave", () => { $("tip").hidden = true; });
+
+    function hover(e) {
+      const t = e.target, tip = $("tip");
+      const box = $("mapbox").getBoundingClientRect();
+      let label = null;
+      if (t.classList && t.classList.contains("pin")) { const m = S.memories.find((x) => x.id === t.dataset.id); if (m) label = `${m.place || m.city} · ${fmtDate(m.date)}`; }
+      else if (t.classList && t.classList.contains("prov")) label = t.dataset.name;
+      if (!label) { tip.hidden = true; return; }
+      tip.textContent = label; tip.hidden = false;
+      tip.style.left = (e.clientX - box.left) + "px"; tip.style.top = (e.clientY - box.top) + "px";
+    }
+    function tap(target, e) {
+      if (target.classList.contains("pin")) { selectMemory(target.dataset.id, true); return; }
+      if (!target.classList.contains("prov")) return;
+      const p = svgPt(e);
+      const [lat, lng] = toLL((p.x - T.x) / T.s, (p.y - T.y) / T.s);
+      onMapTap(lat, lng);
+    }
+    M = {
+      screen(lat, lng) { const [x, y] = toXY(lat, lng); const k = svg.getBoundingClientRect().width / VB.w; return [(x * T.s + T.x) * k, (y * T.s + T.y) * k]; },
+      focus() {},
+      draft() {
+        const g = $("draftLayer"); g.textContent = "";
+        if (!S.draft) return;
+        const [x, y] = toXY(S.draft.lat, S.draft.lng);
+        const ring = document.createElementNS(NS, "circle"); ring.setAttribute("class", "draft");
+        ring.setAttribute("cx", x); ring.setAttribute("cy", y); ring.setAttribute("r", 13 / T.s);
+        const dot = document.createElementNS(NS, "circle"); dot.setAttribute("class", "draft-dot");
+        dot.setAttribute("cx", x); dot.setAttribute("cy", y); dot.setAttribute("r", 3 / T.s);
+        g.append(ring, dot);
+      },
+      pins(list, vis) {
+        const g = $("pins"); g.textContent = "";
+        const r = 7 / T.s;
+        for (const m of list) {
+          const [x, y] = toXY(m.lat, m.lng);
+          const c = document.createElementNS(NS, "circle");
+          c.setAttribute("cx", x); c.setAttribute("cy", y);
+          c.setAttribute("class", "pin" + (vis.has(m.id) ? "" : " dim") + (m.id === S.selId ? " sel" : ""));
+          c.setAttribute("r", m.id === S.selId ? r * 1.5 : r);
+          c.dataset.id = m.id;
+          g.appendChild(c);
+        }
+      },
+    };
+    applyT();
+  }
+
+  // ---- filtering ----
+  function visible() {
+    const md = S.selDate.slice(5);
+    if (S.mode === "all") return S.memories;
+    if (S.mode === "anniv") return S.memories.filter((m) => m.date.slice(5) === md);
+    return S.memories.filter((m) => m.date === S.selDate);
+  }
+  const sortMem = (a, b) => (b.date.localeCompare(a.date)) || ((b.createdAt || 0) - (a.createdAt || 0));
+
+  // ---- calendar ----
+  const yearSel = $("yearSel");
+  for (let y = today.getFullYear(); y >= MIN_YEAR; y--) { const o = document.createElement("option"); o.value = y; o.textContent = y; yearSel.appendChild(o); }
+  yearSel.onchange = () => { S.view.y = +yearSel.value; if (S.view.y === today.getFullYear() && S.view.m > today.getMonth()) S.view.m = today.getMonth(); renderCal(); };
+  $("prevM").onclick = () => { S.view.m--; if (S.view.m < 0) { S.view.m = 11; S.view.y--; } renderCal(); };
+  $("nextM").onclick = () => { S.view.m++; if (S.view.m > 11) { S.view.m = 0; S.view.y++; } renderCal(); };
+  document.querySelectorAll(".modes button").forEach((b) => b.onclick = () => { S.mode = b.dataset.mode; renderAll(); });
+
+  function renderCal() {
+    const { y, m } = S.view;
+    $("calTitle").textContent = MONTHS[m];
+    yearSel.value = y;
+    $("prevM").disabled = y <= MIN_YEAR && m === 0;
+    $("nextM").disabled = y === today.getFullYear() && m === today.getMonth();
+    const has = new Set(S.memories.map((x) => x.date));
+    const cal = $("cal"); cal.textContent = "";
+    for (const d of DOW) { const e = document.createElement("div"); e.className = "dow"; e.textContent = d; cal.appendChild(e); }
+    const first = new Date(y, m, 1); const lead = (first.getDay() + 6) % 7;
+    for (let i = 0; i < lead; i++) cal.appendChild(document.createElement("div"));
+    const n = new Date(y, m + 1, 0).getDate();
+    for (let d = 1; d <= n; d++) {
+      const s = `${y}-${pad(m + 1)}-${pad(d)}`;
+      const b = document.createElement("button"); b.type = "button"; b.className = "day"; b.textContent = d;
+      if (s > TODAY) b.disabled = true;
+      if (s === TODAY) b.classList.add("today");
+      if (has.has(s)) b.classList.add("has");
+      if (s === S.selDate) { b.classList.add("sel"); b.setAttribute("aria-current", "date"); }
+      b.setAttribute("aria-label", fmtDate(s) + (has.has(s) ? ", anı var" : ""));
+      b.onclick = () => { S.selDate = s; S.selId = null; if (S.mode === "all") S.mode = "day"; if (!$("composeCard").hidden) $("fDate").value = s; renderAll(); };
+      cal.appendChild(b);
+    }
+  }
+
+  // ---- pins + list ----
+  function renderPins() {
+    const vis = new Set(visible().map((m) => m.id));
+    const list = S.memories.filter((m) => vis.has(m.id) || S.mode === "day").sort((a, b) => (vis.has(a.id) - vis.has(b.id)) || ((a.id === S.selId) - (b.id === S.selId)));
+    M.pins(list, vis);
+  }
+
+  const photoCache = new Map();
+  function renderList() {
+    const list = visible().sort(sortMem);
+    const title = S.mode === "all" ? "Bütün anılar" : S.mode === "anniv" ? `Her yıl ${fmtDate(S.selDate).split(" ").slice(0, 2).join(" ")}` : fmtDate(S.selDate);
+    $("listTitle").textContent = title;
+    $("listCount").textContent = list.length ? `${list.length} anı` : "";
+    const box = $("mems"); box.textContent = "";
+    if (!list.length) {
+      const e = document.createElement("div"); e.className = "empty";
+      e.innerHTML = S.mode === "day"
+        ? `Bu güne henüz anı bırakılmamış. <b>Haritada bir yere dokun</b> ve ilk anıyı sen bırak. Takvimdeki noktalar anı olan günleri gösterir.`
+        : `Burada henüz anı yok. <b>Haritada bir yere dokun</b> ve ilk anıyı sen bırak.`;
+      box.appendChild(e); return;
+    }
+    for (const m of list) {
+      const el = document.createElement("article"); el.className = "mem" + (m.id === S.selId ? " sel" : ""); el.dataset.id = m.id;
+      const meta = document.createElement("div"); meta.className = "mem-meta";
+      const date = document.createElement("button"); date.type = "button"; date.textContent = fmtDate(m.date);
+      date.onclick = () => { S.selDate = m.date; const [yy, mm] = m.date.split("-").map(Number); S.view = { y: yy, m: mm - 1 }; S.mode = "day"; selectMemory(m.id, false); };
+      const place = document.createElement("button"); place.type = "button"; place.textContent = m.place ? `${m.place} (${m.city})` : (m.city || "");
+      place.onclick = () => { M.focus(m.lat, m.lng, 17); selectMemory(m.id, false); };
+      meta.append(date, place);
+      if (m.mood) { const c = document.createElement("span"); c.className = "chip"; c.textContent = m.mood; meta.appendChild(c); }
+      el.appendChild(meta);
+      const p = document.createElement("p"); p.textContent = m.text; el.appendChild(p);
+      if (m.hasPhoto) {
+        const img = document.createElement("img"); img.alt = "Anıya eklenen fotoğraf"; img.loading = "lazy";
+        el.appendChild(img);
+        const cached = photoCache.get(m.id);
+        if (cached) img.src = cached;
+        else store.photo(m.id).then((src) => { if (src) { photoCache.set(m.id, src); img.src = src; } else img.remove(); }).catch(() => img.remove());
+      }
+      const foot = document.createElement("div"); foot.className = "row";
+      const who = document.createElement("span"); who.className = "who"; who.textContent = "İsimsiz";
+      foot.appendChild(who);
+      if (store.canRemove) {
+        const rm = document.createElement("button"); rm.type = "button"; rm.className = "btn small"; rm.textContent = "Kaldır";
+        rm.onclick = () => {
+          if (rm.dataset.armed) { store.remove(m.id).then(() => toast("Anı kaldırıldı")).catch(() => toast("Kaldırılamadı, tekrar dene")); }
+          else { rm.dataset.armed = "1"; rm.textContent = "Emin misin? Kaldır"; }
+        };
+        foot.appendChild(rm);
+      }
+      el.appendChild(foot);
+      el.onclick = (ev) => { if (ev.target.closest("button")) return; selectMemory(m.id, false); };
+      box.appendChild(el);
+    }
+  }
+
+  function selectMemory(id, fromMap) {
+    const m = S.memories.find((x) => x.id === id); if (!m) return;
+    S.selId = id;
+    if (fromMap && !visible().some((x) => x.id === id)) { S.selDate = m.date; S.mode = "day"; const [yy, mm] = m.date.split("-").map(Number); S.view = { y: yy, m: mm - 1 }; }
+    renderAll();
+    const el = document.querySelector(`.mem[data-id="${CSS.escape(id)}"]`);
+    if (el) el.scrollIntoView({ block: "nearest", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+  }
+
+  function renderAll() {
+    document.querySelectorAll(".modes button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.mode === S.mode)));
+    renderCal(); renderPins(); renderList();
+  }
+
+  // ---- composer ----
+  const moodsBox = $("moods");
+  for (const md of MOODS) {
+    const b = document.createElement("button"); b.type = "button"; b.textContent = md; b.setAttribute("aria-pressed", "false");
+    b.onclick = () => { S.mood = S.mood === md ? null : md; moodsBox.querySelectorAll("button").forEach((x) => x.setAttribute("aria-pressed", String(x.textContent === S.mood))); };
+    moodsBox.appendChild(b);
+  }
+  $("fDate").max = TODAY; $("fDate").min = `${MIN_YEAR}-01-01`;
+  $("fText").addEventListener("input", () => { $("textCount").textContent = `${$("fText").value.length} / 1200`; });
+
+  function openComposer() {
+    $("composeCard").hidden = false;
+    $("fDate").value = S.selDate;
+    renderPlace();
+    $("mapHint").innerHTML = "<b>Yeri değiştirmek için</b> haritada başka bir yere dokun.";
+    $("composeCard").scrollIntoView({ block: "nearest" });
+    $("fText").focus({ preventScroll: true });
+  }
+  function closeComposer() {
+    $("composeCard").hidden = true; $("form").reset(); S.mood = null; S.photo = null; S.draft = null;
+    moodsBox.querySelectorAll("button").forEach((x) => x.setAttribute("aria-pressed", "false"));
+    $("photoPrev").hidden = true; $("photoClear").hidden = true; $("formErr").textContent = ""; $("textCount").textContent = "0 / 1200"; delete $("fPlace").dataset.typed;
+    setHint();
+    M.draft();
+  }
+  function renderPlace() {
+    const line = $("placeLine");
+    if (S.draft) { line.classList.add("set"); $("placeText").textContent = `${S.draft.city} · ${S.draft.lat.toFixed(4)}° K, ${S.draft.lng.toFixed(4)}° D`; if (S.draft.place && !$("fPlace").dataset.typed) $("fPlace").value = S.draft.place; }
+    else { line.classList.remove("set"); $("placeText").textContent = "Haritada bir yere dokun."; }
+  }
+  $("cancelBtn").onclick = closeComposer;
+  $("fPlace").addEventListener("input", () => { $("fPlace").dataset.typed = "1"; });
+
+  // Re-encode through a canvas: shrinks the file and drops EXIF (GPS, camera) metadata.
+  function compress(file) {
+    return new Promise((resolve, reject) => {
+      const url = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = () => {
+        URL.revokeObjectURL(url);
+        let max = 1200, q = 0.78, out = "";
+        for (let i = 0; i < 6; i++) {
+          const k = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
+          const c = document.createElement("canvas");
+          c.width = Math.round(img.naturalWidth * k); c.height = Math.round(img.naturalHeight * k);
+          c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+          out = c.toDataURL("image/jpeg", q);
+          if (out.length < 200000) return resolve(out);
+          max *= 0.8; q = Math.max(0.5, q - 0.08);
+        }
+        reject(new Error("Fotoğraf çok büyük, başka bir fotoğraf dene."));
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("Bu dosya açılamadı. JPG ya da PNG bir fotoğraf seç.")); };
+      img.src = url;
+    });
+  }
+  $("fPhoto").addEventListener("change", async (e) => {
+    const f = e.target.files && e.target.files[0]; if (!f) return;
+    $("formErr").textContent = "";
+    try { S.photo = await compress(f); $("photoPrev").src = S.photo; $("photoPrev").hidden = false; $("photoClear").hidden = false; }
+    catch (err) { S.photo = null; $("formErr").textContent = err.message; }
+    e.target.value = "";
+  });
+  $("photoClear").onclick = () => { S.photo = null; $("photoPrev").hidden = true; $("photoClear").hidden = true; };
+
+  $("form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const err = $("formErr"); err.textContent = "";
+    const date = $("fDate").value, text = $("fText").value.trim();
+    if (!S.draft) { err.textContent = "Önce haritada anının geçtiği yere dokun."; return; }
+    if (!date) { err.textContent = "Anının tarihini seç."; return; }
+    if (date > TODAY) { err.textContent = "Tarih bugünden sonra olamaz; burası geçmiş anılar için."; return; }
+    if (date < `${MIN_YEAR}-01-01`) { err.textContent = `Tarih ${MIN_YEAR} ve sonrası olmalı.`; return; }
+    if (text.length < 3) { err.textContent = "Birkaç kelime yaz, en az 3 karakter."; return; }
+    const id = (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2)).replace(/[^a-zA-Z0-9-]/g, "");
+    const m = { id, date, text: text.slice(0, 1200), lat: S.draft.lat, lng: S.draft.lng, city: S.draft.city, place: $("fPlace").value.trim().slice(0, 120) || null, mood: S.mood || null, hasPhoto: !!S.photo, createdAt: Date.now() };
+    const btn = $("submitBtn"); btn.disabled = true; btn.textContent = "Bırakılıyor…";
+    try {
+      await store.add(m, S.photo);
+      if (S.photo) photoCache.set(id, S.photo);
+      S.selDate = date; S.mode = "day"; S.selId = id;
+      const [yy, mm] = date.split("-").map(Number); S.view = { y: yy, m: mm - 1 };
+      closeComposer(); renderAll(); toast("Anın haritada");
+    } catch (ex) {
+      err.textContent = ex && ex.code === "quota_exceeded" ? "Anı alanı doldu. Yönetici eski anıları temizleyene kadar yeni anı bırakılamıyor."
+        : ex && ex.code === "invalid_argument" ? "Bu sayfada anı bırakma iznin yok ya da fotoğraf çok büyük."
+        : (ex && ex.message) || "Anı kaydedilemedi, tekrar dene.";
+    } finally { btn.disabled = false; btn.textContent = "Anıyı bırak"; }
+  });
+
+  let toastT;
+  function toast(t) { const el = $("toast"); el.textContent = t; el.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => el.hidden = true, 2400); }
+
+  function setHint() {
+    $("mapHint").innerHTML = STREET ? "<b>Yakınlaştır ya da yer ara</b>, anının geçtiği noktaya dokun." : "<b>Haritada bir yere dokun</b>, oraya anı bırak. Kırmızı noktalar seçili günün anıları.";
+  }
+  setHint(); renderAll(); initStore();
+})();
+</script>
+
+</body>
+</html>
