@@ -216,6 +216,10 @@ header.top h1 em { font-style: normal; }
 .toast { border: 2px solid var(--accent); }
 /* Leaves fall on the page background only: the canvas sits behind the content layer. */
 .wrap { position: relative; z-index: 1; }
+.slider { display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; }
+.slider input[type="range"] { width: 100%; accent-color: var(--accent); }
+.slider .count { min-width: 5.5em; text-align: right; }
+.theme-btn { margin-left: auto; align-self: center; font-family: var(--display); }
 /* Leaf pile: a strip fixed to the bottom of the screen where falling leaves land and build up. */
 #pile { position: fixed; left: 0; right: 0; bottom: 0; width: 100%; height: 54px; pointer-events: none; z-index: 1100; image-rendering: pixelated; image-rendering: crisp-edges; }
 body { padding-bottom: 54px; }
@@ -230,6 +234,7 @@ body { padding-bottom: 54px; }
     <h1>anı <em>haritası</em></h1>
     <p>Takvimde bir güne git, haritada bir yere dokun, orada yaşadığını ya da hissettiğini isimsiz bırak.</p>
     <span class="store-note" id="storeNote">Kayıtlar yükleniyor…</span>
+    <button type="button" class="btn small theme-btn" id="themeBtn" aria-label="Koyu temaya geç">☾ Koyu</button>
   </header>
 
   <div class="layout">
@@ -428,6 +433,7 @@ body { padding-bottom: 54px; }
   }
   addEventListener("resize", resize); resize();
   matchMedia("(prefers-color-scheme: dark)").addEventListener("change", drawSoil);
+  addEventListener("themechange", drawSoil);
   if (still) { cv.remove(); return; } // reduced motion: keep the pile, skip the falling animation
 
   let last = performance.now();
@@ -455,8 +461,9 @@ body { padding-bottom: 54px; }
   <div class="row">
     <button type="button" class="btn primary small" id="musicPlay">Çal</button>
     <button type="button" class="btn small" id="musicJump">Rastgele bir an</button>
-    <span class="count" id="musicTime">0:00</span>
   </div>
+  <label class="slider"><span>Süre</span><input type="range" id="musicSeek" min="0" max="100" step="1" value="0" aria-label="Şarkıda konum"><span class="count" id="musicTime">0:00</span></label>
+  <label class="slider"><span>Ses</span><input type="range" id="musicVol" min="0" max="100" step="1" value="30" aria-label="Ses seviyesi"><span class="count" id="musicVolTxt">%30</span></label>
 </div>
 <script>
 // Music bubble: one song, starting at a random second; tries to play on arrival,
@@ -479,7 +486,14 @@ body { padding-bottom: 54px; }
   document.getElementById("musicJump").onclick = () => { jump(); play(); };
   audio.addEventListener("play", () => { playBtn.textContent = "Duraklat"; fab.classList.add("playing"); });
   audio.addEventListener("pause", () => { playBtn.textContent = "Çal"; fab.classList.remove("playing"); });
-  audio.addEventListener("timeupdate", () => { time.textContent = `${fmt(audio.currentTime)} / ${fmt(audio.duration || 0)}`; });
+  const seek = document.getElementById("musicSeek"), vol = document.getElementById("musicVol"), volTxt = document.getElementById("musicVolTxt");
+  let seeking = false;
+  const showTime = () => { time.textContent = `${fmt(audio.currentTime)} / ${fmt(audio.duration || 0)}`; };
+  audio.addEventListener("loadedmetadata", () => { seek.max = Math.floor(audio.duration); });
+  audio.addEventListener("timeupdate", () => { if (!seeking) seek.value = Math.floor(audio.currentTime); showTime(); });
+  seek.addEventListener("input", () => { seeking = true; time.textContent = `${fmt(+seek.value)} / ${fmt(audio.duration || 0)}`; });
+  seek.addEventListener("change", () => { audio.currentTime = +seek.value; seeking = false; });
+  vol.addEventListener("input", () => { audio.volume = vol.value / 100; volTxt.textContent = `%${vol.value}`; });
   const start = () => { jump(); play(); };
   if (audio.readyState >= 1) start(); else audio.addEventListener("loadedmetadata", start, { once: true });
   const kick = (ev) => {
@@ -1009,5 +1023,27 @@ const PROVINCES=[["Adana","M760.0,565.9L760.2,566.1L760.3,566.3L759.9,566.0L760.
 })();
 </script>
 
+<script>
+// Dark/light switch: sets data-theme on <html> (the colour tokens follow it) and remembers the choice.
+(() => {
+  const root = document.documentElement, btn = document.getElementById("themeBtn");
+  const systemDark = matchMedia("(prefers-color-scheme: dark)");
+  const current = () => root.dataset.theme || (systemDark.matches ? "dark" : "light");
+  const label = () => {
+    const dark = current() === "dark";
+    btn.textContent = dark ? "☀ Açık" : "☾ Koyu";
+    btn.setAttribute("aria-label", dark ? "Açık temaya geç" : "Koyu temaya geç");
+  };
+  try { const saved = localStorage.getItem("ani-theme"); if (saved === "dark" || saved === "light") root.dataset.theme = saved; } catch {}
+  label();
+  systemDark.addEventListener("change", label);
+  btn.onclick = () => {
+    root.dataset.theme = current() === "dark" ? "light" : "dark";
+    try { localStorage.setItem("ani-theme", root.dataset.theme); } catch {}
+    label();
+    window.dispatchEvent(new Event("themechange"));
+  };
+})();
+</script>
 </body>
 </html>
