@@ -296,10 +296,33 @@ header.top p { margin: 0; color: var(--muted); max-width: 52ch; }
 </div>
 <script>
 // Music bubble: plays from a Spotify playlist through Spotify's embed iFrame API.
-// Random mode picks from TRACKS; with TRACKS empty it loads the whole playlist and shuffle picks nothing.
+// Starts on a random song from TRACKS and moves to another random one when a song ends.
 (() => {
   const PLAYLIST = "spotify:playlist:5AJ6WZg3GcmzD87cFFkIbD";
-  const TRACKS = []; // "spotify:track:<id>" entries; paste the playlist's song links here for true random picks
+  // Songs from the playlist above, as Spotify track ids.
+  const TRACKS = [
+    "61qPfuyyWUtWipUORVm8nu",
+    "5Q5vwNyDHaJ1aD8oruEhdF",
+    "1Djac9NO15nBZtzWSU1zFq",
+    "5nlIUh2SHjxZ7mY7c06V4P",
+    "2uPl0Hgo3gsZuqbvJDi3cb",
+    "2hhejNu0pEMAs3mnJbpLvW",
+    "574dU2sO7132bEfRER8o2Y",
+    "5C4qogB02j1sjBkqW6HPrx",
+    "4Ajae4jU9xT1CWYQuGEPiI",
+    "2EgKzmVh1AjOOnywKgDHtE",
+    "6aJPliIowPp3KeQlESC5Ib",
+    "3Uu1RIgn9DSReCDCbGVIj6",
+    "6cYHxzbCi1PltLXKnMnmjf",
+    "3eKXTWZEcA0mYuANNtkrIE",
+    "0uuTlPSZL6mz6sn4uNd5fD",
+    "2oJWs1eOQqlB2i1K82NEzs",
+    "3wXkFhvVJKRf2onNiMJlzS",
+    "5B8upAComzhal9EG9eFfcS",
+    "6zyvn8LhKWrzzDL2tjkUDJ",
+    "68CzcgovWSdgILwHKbuDrQ",
+    "6RMvJrfHZC8nDWSBYFnO42"
+  ].map((id) => "spotify:track:" + id);
   const fab = document.getElementById("musicFab"), pop = document.getElementById("musicPop");
   let controller = null, pending = null, last = null;
   const pick = () => {
@@ -319,7 +342,14 @@ header.top p { margin: 0; color: var(--muted); max-width: 52ch; }
   window.onSpotifyIframeApiReady = (api) => {
     api.createController(document.getElementById("spotifyEmbed"), { uri: pick(), width: "100%", height: 152 }, (c) => {
       controller = c;
-      c.addListener("playback_update", (e) => fab.classList.toggle("playing", !!(e && e.data && !e.data.isPaused)));
+      let advanced = false;
+      c.addListener("playback_update", (e) => {
+        const d = e && e.data; if (!d) return;
+        fab.classList.toggle("playing", !d.isPaused);
+        // When a song ends, move on to another random one.
+        if (d.duration > 0 && d.position >= d.duration - 500 && !advanced) { advanced = true; c.loadUri(pick()); c.play(); }
+        else if (d.position < d.duration - 500) advanced = false;
+      });
       if (pending) { c.loadUri(pending); c.play(); pending = null; }
     });
   };
