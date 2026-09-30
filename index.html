@@ -11,7 +11,7 @@
 <title>Anı Haritası</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Figtree:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Pixelify+Sans:wght@400;600&family=Figtree:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
 <style>
 /* Layout: the map of Turkey is the page; a calendar + memory column sits beside it (below it on phones). */
 :root {
@@ -179,6 +179,44 @@ header.top p { margin: 0; color: var(--muted); max-width: 52ch; }
 .music-pop .player iframe { display: block; width: 100%; border: 0; }
 @media (prefers-reduced-motion: reduce) { .music-fab.playing { animation: none; } }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+
+/* ---- Sonbahar teması (piksel sanat) ---- */
+:root {
+  --bg: #efe2cc; --sea: #cdd5c2; --land: #fbf3e4; --land-hover: #f4d6b0; --border: #a8835a;
+  --ink: #3a2418; --muted: #7a5a44; --panel: #fff8ec; --line: #dcc4a2; --shade: #b99a74;
+  --accent: #c2410c; --accent-soft: #f8dcc2; --accent-ink: #fff8ec;
+  --display: "Pixelify Sans", "Courier New", monospace;
+  --radius: 0;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #1d1410; --sea: #211a14; --land: #2e221a; --land-hover: #4a2c1a; --border: #6b4a32;
+    --ink: #f3e3cc; --muted: #bfa088; --panel: #271c16; --line: #3d2c21; --shade: #0f0a07;
+    --accent: #f08a3c; --accent-soft: #4a2a18; --accent-ink: #1d1410; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #1d1410; --sea: #211a14; --land: #2e221a; --land-hover: #4a2c1a; --border: #6b4a32;
+  --ink: #f3e3cc; --muted: #bfa088; --panel: #271c16; --line: #3d2c21; --shade: #0f0a07;
+  --accent: #f08a3c; --accent-soft: #4a2a18; --accent-ink: #1d1410; color-scheme: dark;
+}
+/* Pixel look: square corners, hard 1-step shadows, pixel display face. */
+*, *::before, *::after { border-radius: 0 !important; }
+header.top h1 { font-weight: 600; letter-spacing: 0; }
+header.top h1 em { font-style: normal; }
+.cal-head .title, .list-head h2, .composer h2, .music-pop .head b { font-weight: 600; }
+.card, .mapbox, .music-pop, .place-pop, .results { border: 2px solid var(--ink); box-shadow: 4px 4px 0 var(--shade); }
+.btn, .search input, .field input, .field textarea, .cal-head button, .cal-head select, .map-tools button, .moods button { border-width: 2px; }
+.btn.primary, .music-fab { box-shadow: 3px 3px 0 var(--ink); }
+.btn.primary:active, .music-fab:active { transform: translate(2px, 2px); box-shadow: 1px 1px 0 var(--ink); }
+.music-fab { font-family: var(--display); }
+.day.sel { box-shadow: 2px 2px 0 var(--ink); }
+.day.has::after { width: 5px; height: 5px; }
+.mapbox .leaflet-tile-pane { filter: sepia(.35) saturate(1.15) hue-rotate(-8deg); }
+:root[data-theme="dark"] .mapbox .leaflet-tile-pane { filter: sepia(.4) brightness(.72) contrast(1.05); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .mapbox .leaflet-tile-pane { filter: sepia(.4) brightness(.72) contrast(1.05); } }
+.toast { border: 2px solid var(--accent); }
+#leaves { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 1150; image-rendering: pixelated; image-rendering: crisp-edges; }
 </style>
 
 <div class="wrap">
@@ -288,6 +326,86 @@ header.top p { margin: 0; color: var(--muted); max-width: 52ch; }
   </div>
 </div>
 <div class="toast" id="toast" hidden></div>
+<canvas id="leaves" aria-hidden="true"></canvas>
+<script>
+// Falling pixel-art autumn leaves, drawn on a low-resolution canvas scaled up without smoothing.
+(() => {
+  const cv = document.getElementById("leaves"), ctx = cv.getContext("2d");
+  if (!ctx || matchMedia("(prefers-reduced-motion: reduce)").matches) { cv.remove(); return; }
+  const PX = 3; // one art pixel = 3 screen pixels
+  const SHAPES = [
+    [ // maple
+      "....a....",
+      "..a.a.a..",
+      "..aaaaa..",
+      "aaaabaaaa",
+      ".aaabaaa.",
+      "..aabaa..",
+      ".aaabaaa.",
+      "....b....",
+      "....s....",
+    ],
+    [ // oak-ish oval
+      "...aa....",
+      "..aaaa...",
+      ".aaabaa..",
+      ".aabaaaa.",
+      "..aabaaa.",
+      "..aaabaa.",
+      "...aabaa.",
+      "....aa...",
+      "...s.....",
+    ],
+  ];
+  const COLORS = [["#e8590c", "#a33f06"], ["#f59f00", "#b86e00"], ["#c92a2a", "#7f1d1d"], ["#b5651d", "#6e3b12"], ["#fab005", "#c77c02"]];
+  const STEM = "#5e3a1a";
+  // Pre-render 4 tumble frames per leaf: normal, squashed, mirrored, squashed mirrored.
+  const frames = [];
+  for (const shape of SHAPES) for (const [a, b] of COLORS) frames.push([0, 1, 2, 3].map((f) => {
+    const n = shape.length, c = document.createElement("canvas"); c.width = c.height = n;
+    const x = c.getContext("2d");
+    shape.forEach((row, y) => [...row].forEach((ch, i) => {
+      if (ch === ".") return;
+      const mirrored = f >= 2 ? n - 1 - i : i;
+      // squash: pull columns toward the centre line to fake the leaf turning edge-on
+      const col = f % 2 === 1 ? Math.round((n - 1) / 2 + (mirrored - (n - 1) / 2) * 0.5) : mirrored;
+      x.fillStyle = ch === "a" ? a : ch === "b" ? b : STEM;
+      x.fillRect(col, y, 1, 1);
+    }));
+    return c;
+  }));
+  let W = 0, H = 0, leaves = [];
+  const count = () => Math.round(Math.min(34, Math.max(12, innerWidth / 45)));
+  const spawn = (top) => ({
+    x: Math.random() * W, y: top ? -8 - Math.random() * H * 0.2 : Math.random() * H,
+    vy: 0.12 + Math.random() * 0.2, sway: 0.4 + Math.random() * 0.8, phase: Math.random() * 6.28,
+    spin: 0.02 + Math.random() * 0.04, set: Math.floor(Math.random() * frames.length),
+  });
+  function resize() {
+    W = Math.ceil(innerWidth / PX); H = Math.ceil(innerHeight / PX);
+    cv.width = W; cv.height = H; ctx.imageSmoothingEnabled = false;
+    const n = count();
+    while (leaves.length < n) leaves.push(spawn(false));
+    leaves.length = n;
+  }
+  addEventListener("resize", resize); resize();
+  let last = performance.now();
+  function tick(now) {
+    const dt = Math.min(50, now - last) / 16.7; last = now;
+    ctx.clearRect(0, 0, W, H);
+    for (const l of leaves) {
+      l.phase += l.spin * dt;
+      l.y += l.vy * dt;
+      const x = Math.round(l.x + Math.sin(l.phase) * l.sway * 6);
+      if (l.y > H + 8) Object.assign(l, spawn(true));
+      const f = Math.floor(((l.phase % 6.28) + 6.28) % 6.28 / 1.57);
+      ctx.drawImage(frames[l.set][f], x, Math.round(l.y));
+    }
+    requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+})();
+</script>
 <button type="button" class="music-fab" id="musicFab" aria-label="Müzik balonunu aç" aria-expanded="false">♪</button>
 <div class="music-pop" id="musicPop" hidden role="dialog" aria-label="Müzik">
   <div class="head"><b>Bir şarkı eşliğinde</b><button type="button" class="x" id="musicClose" aria-label="Kapat">×</button></div>
