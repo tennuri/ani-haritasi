@@ -167,6 +167,17 @@ header.top p { margin: 0; color: var(--muted); max-width: 52ch; }
 .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 .toast { position: fixed; left: 50%; bottom: calc(20px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: var(--ink); color: var(--bg); padding: 8px 14px; border-radius: 8px; font-size: 14px; }
+/* Music bubble (Spotify embed) */
+.music-fab { position: fixed; right: 16px; bottom: calc(16px + env(safe-area-inset-bottom, 0px)); z-index: 1200; width: 52px; height: 52px; border-radius: 50%; border: 0; background: var(--accent); color: var(--accent-ink); font-size: 22px; box-shadow: 0 6px 18px rgb(0 0 0 / .22); }
+.music-fab.playing { animation: pulse 2.4s ease-in-out infinite; }
+@keyframes pulse { 50% { box-shadow: 0 0 0 10px transparent, 0 6px 18px rgb(0 0 0 / .22); transform: scale(1.05); } }
+.music-pop { position: fixed; right: 16px; bottom: calc(80px + env(safe-area-inset-bottom, 0px)); z-index: 1200; width: min(360px, calc(100vw - 32px)); background: var(--panel); border: 1px solid var(--line); border-radius: 16px 16px 4px 16px; box-shadow: 0 12px 32px rgb(0 0 0 / .2); padding: 12px; display: grid; gap: 10px; }
+.music-pop .head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.music-pop .head b { font-family: var(--display); font-weight: 400; font-size: 22px; line-height: 1.1; }
+.music-pop .x { border: 0; background: transparent; font-size: 20px; line-height: 1; color: var(--muted); width: 32px; height: 32px; border-radius: 8px; }
+.music-pop .player { border-radius: 12px; overflow: hidden; min-height: 152px; background: var(--bg); }
+.music-pop .player iframe { display: block; width: 100%; border: 0; }
+@media (prefers-reduced-motion: reduce) { .music-fab.playing { animation: none; } }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
 
@@ -277,6 +288,48 @@ header.top p { margin: 0; color: var(--muted); max-width: 52ch; }
   </div>
 </div>
 <div class="toast" id="toast" hidden></div>
+<button type="button" class="music-fab" id="musicFab" aria-label="Müzik balonunu aç" aria-expanded="false">♪</button>
+<div class="music-pop" id="musicPop" hidden role="dialog" aria-label="Müzik">
+  <div class="head"><b>Bir şarkı eşliğinde</b><button type="button" class="x" id="musicClose" aria-label="Kapat">×</button></div>
+  <div class="player"><div id="spotifyEmbed"></div></div>
+  <div class="row"><button type="button" class="btn primary small" id="musicShuffle">Rastgele şarkı</button><span class="hint" id="musicNote">Spotify'a giriş yapmadıysan şarkılar 30 saniyelik önizleme olarak çalar.</span></div>
+</div>
+<script>
+// Music bubble: plays from a Spotify playlist through Spotify's embed iFrame API.
+// Random mode picks from TRACKS; with TRACKS empty it loads the whole playlist and shuffle picks nothing.
+(() => {
+  const PLAYLIST = "spotify:playlist:5AJ6WZg3GcmzD87cFFkIbD";
+  const TRACKS = []; // "spotify:track:<id>" entries; paste the playlist's song links here for true random picks
+  const fab = document.getElementById("musicFab"), pop = document.getElementById("musicPop");
+  let controller = null, pending = null, last = null;
+  const pick = () => {
+    if (!TRACKS.length) return PLAYLIST;
+    let t; do { t = TRACKS[Math.floor(Math.random() * TRACKS.length)]; } while (TRACKS.length > 1 && t === last);
+    return (last = t);
+  };
+  const toggle = (open) => {
+    pop.hidden = !open; fab.setAttribute("aria-expanded", String(open));
+    fab.setAttribute("aria-label", open ? "Müzik balonunu kapat" : "Müzik balonunu aç");
+  };
+  fab.onclick = () => toggle(pop.hidden);
+  document.getElementById("musicClose").onclick = () => toggle(false);
+  const shuffleBtn = document.getElementById("musicShuffle");
+  if (!TRACKS.length) shuffleBtn.hidden = true;
+  shuffleBtn.onclick = () => { if (controller) { controller.loadUri(pick()); controller.play(); } else pending = pick(); };
+  window.onSpotifyIframeApiReady = (api) => {
+    api.createController(document.getElementById("spotifyEmbed"), { uri: pick(), width: "100%", height: 152 }, (c) => {
+      controller = c;
+      c.addListener("playback_update", (e) => fab.classList.toggle("playing", !!(e && e.data && !e.data.isPaused)));
+      if (pending) { c.loadUri(pending); c.play(); pending = null; }
+    });
+  };
+  const sc = document.createElement("script"); sc.src = "https://open.spotify.com/embed/iframe-api/v1"; sc.async = true;
+  sc.onerror = () => { document.getElementById("musicNote").textContent = "Spotify oynatıcısı yüklenemedi. İnternet bağlantını kontrol et."; };
+  document.body.appendChild(sc);
+  // Pop the bubble once, a few seconds after the page opens.
+  setTimeout(() => { let seen = false; try { seen = sessionStorage.getItem("ani-music-seen") === "1"; sessionStorage.setItem("ani-music-seen", "1"); } catch {} if (!seen) toggle(true); }, 2500);
+})();
+</script>
 
 <script>
 const MAP_MODE = "street";
