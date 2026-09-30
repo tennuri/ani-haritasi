@@ -167,7 +167,7 @@ header.top p { margin: 0; color: var(--muted); max-width: 52ch; }
 .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 .toast { position: fixed; left: 50%; bottom: calc(20px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: var(--ink); color: var(--bg); padding: 8px 14px; border-radius: 8px; font-size: 14px; }
-/* Music bubble (Spotify embed) */
+/* Music bubble */
 .music-fab { position: fixed; right: 16px; bottom: calc(16px + env(safe-area-inset-bottom, 0px)); z-index: 1200; width: 52px; height: 52px; border-radius: 50%; border: 0; background: var(--accent); color: var(--accent-ink); font-size: 22px; box-shadow: 0 6px 18px rgb(0 0 0 / .22); }
 .music-fab.playing { animation: pulse 2.4s ease-in-out infinite; }
 @keyframes pulse { 50% { box-shadow: 0 0 0 10px transparent, 0 6px 18px rgb(0 0 0 / .22); transform: scale(1.05); } }
@@ -175,8 +175,6 @@ header.top p { margin: 0; color: var(--muted); max-width: 52ch; }
 .music-pop .head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .music-pop .head b { font-family: var(--display); font-weight: 400; font-size: 22px; line-height: 1.1; }
 .music-pop .x { border: 0; background: transparent; font-size: 20px; line-height: 1; color: var(--muted); width: 32px; height: 32px; border-radius: 8px; }
-.music-pop .player { border-radius: 12px; overflow: hidden; min-height: 152px; background: var(--bg); }
-.music-pop .player iframe { display: block; width: 100%; border: 0; }
 @media (prefers-reduced-motion: reduce) { .music-fab.playing { animation: none; } }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 
@@ -410,81 +408,43 @@ header.top h1 em { font-style: normal; }
 </script>
 <button type="button" class="music-fab" id="musicFab" aria-label="Müzik balonunu aç" aria-expanded="false">♪</button>
 <div class="music-pop" id="musicPop" hidden role="dialog" aria-label="Müzik">
-  <div class="head"><b>Bir şarkı eşliğinde</b><button type="button" class="x" id="musicClose" aria-label="Kapat">×</button></div>
-  <div class="player"><div id="spotifyEmbed"></div></div>
-  <div class="row"><button type="button" class="btn primary small" id="musicShuffle">Rastgele şarkı</button><span class="hint" id="musicNote">Spotify'a giriş yapmadıysan şarkılar 30 saniyelik önizleme olarak çalar.</span></div>
+  <div class="head"><b>Cayman</b><button type="button" class="x" id="musicClose" aria-label="Kapat">×</button></div>
+  <audio id="song" src="cayman.mp3" preload="auto" loop></audio>
+  <div class="row">
+    <button type="button" class="btn primary small" id="musicPlay">Çal</button>
+    <button type="button" class="btn small" id="musicJump">Rastgele bir an</button>
+    <span class="count" id="musicTime">0:00</span>
+  </div>
 </div>
 <script>
-// Music bubble: plays from a Spotify playlist through Spotify's embed iFrame API.
-// Starts on a random song from TRACKS and moves to another random one when a song ends.
+// Music bubble: one song, starting at a random second; tries to play on arrival,
+// otherwise starts on the visitor's first tap, click or key press (browser autoplay rules).
 (() => {
-  const PLAYLIST = "spotify:playlist:5AJ6WZg3GcmzD87cFFkIbD";
-  // Songs from the playlist above, as Spotify track ids.
-  const TRACKS = [
-    "61qPfuyyWUtWipUORVm8nu",
-    "5Q5vwNyDHaJ1aD8oruEhdF",
-    "1Djac9NO15nBZtzWSU1zFq",
-    "5nlIUh2SHjxZ7mY7c06V4P",
-    "2uPl0Hgo3gsZuqbvJDi3cb",
-    "2hhejNu0pEMAs3mnJbpLvW",
-    "574dU2sO7132bEfRER8o2Y",
-    "5C4qogB02j1sjBkqW6HPrx",
-    "4Ajae4jU9xT1CWYQuGEPiI",
-    "2EgKzmVh1AjOOnywKgDHtE",
-    "6aJPliIowPp3KeQlESC5Ib",
-    "3Uu1RIgn9DSReCDCbGVIj6",
-    "6cYHxzbCi1PltLXKnMnmjf",
-    "3eKXTWZEcA0mYuANNtkrIE",
-    "0uuTlPSZL6mz6sn4uNd5fD",
-    "2oJWs1eOQqlB2i1K82NEzs",
-    "3wXkFhvVJKRf2onNiMJlzS",
-    "5B8upAComzhal9EG9eFfcS",
-    "6zyvn8LhKWrzzDL2tjkUDJ",
-    "68CzcgovWSdgILwHKbuDrQ",
-    "6RMvJrfHZC8nDWSBYFnO42"
-  ].map((id) => "spotify:track:" + id);
   const fab = document.getElementById("musicFab"), pop = document.getElementById("musicPop");
-  let controller = null, pending = null, last = null;
-  const pick = () => {
-    if (!TRACKS.length) return PLAYLIST;
-    let t; do { t = TRACKS[Math.floor(Math.random() * TRACKS.length)]; } while (TRACKS.length > 1 && t === last);
-    return (last = t);
-  };
+  const audio = document.getElementById("song"), playBtn = document.getElementById("musicPlay"), time = document.getElementById("musicTime");
+  const fmt = (t) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, "0")}`;
   const toggle = (open) => {
     pop.hidden = !open; fab.setAttribute("aria-expanded", String(open));
     fab.setAttribute("aria-label", open ? "Müzik balonunu kapat" : "Müzik balonunu aç");
   };
+  const jump = () => { if (audio.duration) audio.currentTime = Math.random() * Math.max(0, audio.duration - 5); };
+  const play = () => audio.play().catch(() => {});
   fab.onclick = () => toggle(pop.hidden);
   document.getElementById("musicClose").onclick = () => toggle(false);
-  const shuffleBtn = document.getElementById("musicShuffle");
-  if (!TRACKS.length) shuffleBtn.hidden = true;
-  shuffleBtn.onclick = () => { if (controller) { controller.loadUri(pick()); controller.play(); } else pending = pick(); };
-  window.onSpotifyIframeApiReady = (api) => {
-    api.createController(document.getElementById("spotifyEmbed"), { uri: pick(), width: "100%", height: 152 }, (c) => {
-      controller = c;
-      let advanced = false;
-      c.addListener("playback_update", (e) => {
-        const d = e && e.data; if (!d) return;
-        fab.classList.toggle("playing", !d.isPaused);
-        // When a song ends, move on to another random one.
-        if (d.duration > 0 && d.position >= d.duration - 500 && !advanced) { advanced = true; c.loadUri(pick()); c.play(); }
-        else if (d.position < d.duration - 500) advanced = false;
-      });
-      if (pending) { c.loadUri(pending); c.play(); pending = null; }
-      // Try to start right away; browsers that block sound until the visitor interacts
-      // start it on the first tap, click or key press anywhere on the page instead.
-      c.addListener("ready", () => { c.play(); });
-      const kick = (ev) => {
-        if (ev && ev.target && ev.target.closest && ev.target.closest("#musicClose")) return;
-        c.play(); ["pointerdown", "keydown", "touchstart"].forEach((t) => document.removeEventListener(t, kick, true));
-      };
-      ["pointerdown", "keydown", "touchstart"].forEach((t) => document.addEventListener(t, kick, true));
-    });
+  let userPaused = false;
+  playBtn.onclick = () => { if (audio.paused) { userPaused = false; play(); } else { userPaused = true; audio.pause(); } };
+  document.getElementById("musicJump").onclick = () => { jump(); play(); };
+  audio.addEventListener("play", () => { playBtn.textContent = "Duraklat"; fab.classList.add("playing"); });
+  audio.addEventListener("pause", () => { playBtn.textContent = "Çal"; fab.classList.remove("playing"); });
+  audio.addEventListener("timeupdate", () => { time.textContent = `${fmt(audio.currentTime)} / ${fmt(audio.duration || 0)}`; });
+  const start = () => { jump(); play(); };
+  if (audio.readyState >= 1) start(); else audio.addEventListener("loadedmetadata", start, { once: true });
+  const kick = (ev) => {
+    if (ev.target.closest && ev.target.closest("#musicPop, #musicFab")) return; // the bubble's own buttons handle themselves
+    if (audio.paused && !userPaused) play();
+    ["pointerdown", "keydown", "touchstart"].forEach((t) => document.removeEventListener(t, kick, true));
   };
-  const sc = document.createElement("script"); sc.src = "https://open.spotify.com/embed/iframe-api/v1"; sc.async = true;
-  sc.onerror = () => { document.getElementById("musicNote").textContent = "Spotify oynatıcısı yüklenemedi. İnternet bağlantını kontrol et."; };
-  document.body.appendChild(sc);
-  // Pop the bubble once, a few seconds after the page opens.
+  ["pointerdown", "keydown", "touchstart"].forEach((t) => document.addEventListener(t, kick, true));
   setTimeout(() => { let seen = false; try { seen = sessionStorage.getItem("ani-music-seen") === "1"; sessionStorage.setItem("ani-music-seen", "1"); } catch {} if (!seen) toggle(true); }, 2500);
 })();
 </script>
