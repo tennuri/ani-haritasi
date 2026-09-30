@@ -351,6 +351,14 @@ header.top p { margin: 0; color: var(--muted); max-width: 52ch; }
         else if (d.position < d.duration - 500) advanced = false;
       });
       if (pending) { c.loadUri(pending); c.play(); pending = null; }
+      // Try to start right away; browsers that block sound until the visitor interacts
+      // start it on the first tap, click or key press anywhere on the page instead.
+      c.addListener("ready", () => { c.play(); });
+      const kick = (ev) => {
+        if (ev && ev.target && ev.target.closest && ev.target.closest("#musicClose")) return;
+        c.play(); ["pointerdown", "keydown", "touchstart"].forEach((t) => document.removeEventListener(t, kick, true));
+      };
+      ["pointerdown", "keydown", "touchstart"].forEach((t) => document.addEventListener(t, kick, true));
     });
   };
   const sc = document.createElement("script"); sc.src = "https://open.spotify.com/embed/iframe-api/v1"; sc.async = true;
