@@ -1,5 +1,7 @@
 # Anı Haritası
 
+Canlı: https://aniharitasi.com
+
 Türkiye ve KKTC içinde, takvimde bir güne gidip haritada bir noktaya geçmiş bir anıyı (yazı ve isteğe bağlı fotoğraf) **isimsiz** bırakma prototipi.
 
 ## Nasıl çalışır
