@@ -101,6 +101,8 @@ header.top p { margin: 0; color: var(--muted); max-width: 52ch; }
 .mapbox .leaflet-container { font-family: var(--body); cursor: crosshair; }
 .mapbox .map-tools, .mapbox .place-pop, .mapbox .map-hint { z-index: 1000; }
 .mapbox .leaflet-control-attribution { font-size: 10px; }
+:root[data-theme="dark"] #lmap .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(.9) contrast(.9) saturate(.6); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) #lmap .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(.9) contrast(.9) saturate(.6); } }
 .mapbox:has(#lmap:not([hidden])) .map-hint { background: var(--panel); padding: 4px 8px; border-radius: 6px; right: auto; bottom: 26px; }
 .field input[type="text"] { width: 100%; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); padding: 8px 10px; }
 /* Side column */
@@ -738,16 +740,9 @@ const PROVINCES=[["Adana","M760.0,565.9L760.2,566.1L760.3,566.3L759.9,566.0L760.
   let M;
   if (STREET) {
     $("map").setAttribute("hidden", ""); $("lmap").hidden = false; $("search").hidden = false;
-    const map = L.map("lmap", { zoomControl: false, minZoom: 5, maxZoom: 20, maxBounds: [[33.5, 23], [44, 47]], maxBoundsViscosity: 0.8 }).setView([39, 35.2], 6);
-    // CARTO karoları: OSM'nin kendi sunucusu yoğun trafik için değil. Açık/koyu temaya göre değişir.
-    const tileAttr = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> katkıcıları &copy; <a href="https://carto.com/attributions">CARTO</a>';
-    const tileUrl = (dark) => `https://{s}.basemaps.cartocdn.com/${dark ? "dark_all" : "rastertiles/voyager"}/{z}/{x}/{y}{r}.png`;
-    const isDark = () => { const t = document.documentElement.dataset.theme; return t ? t === "dark" : matchMedia("(prefers-color-scheme: dark)").matches; };
-    let tileDark = isDark();
-    const tiles = L.tileLayer(tileUrl(tileDark), { maxZoom: 20, subdomains: "abcd", attribution: tileAttr }).addTo(map);
-    const syncTiles = () => { const d = isDark(); if (d !== tileDark) { tileDark = d; tiles.setUrl(tileUrl(d)); } };
-    new MutationObserver(syncTiles).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
-    matchMedia("(prefers-color-scheme: dark)").addEventListener("change", syncTiles);
+    const map = L.map("lmap", { zoomControl: false, minZoom: 5, maxZoom: 19, maxBounds: [[33.5, 23], [44, 47]], maxBoundsViscosity: 0.8 }).setView([39, 35.2], 6);
+    // OpenStreetMap karoları (anahtar gerektirmez). Koyu temada karolar CSS filtresiyle koyulaştırılır.
+    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> katkıcıları' }).addTo(map);
     const pinLayer = L.layerGroup().addTo(map), draftLayer = L.layerGroup().addTo(map);
     map.on("click", (e) => onMapTap(e.latlng.lat, e.latlng.lng));
     map.on("move zoom", positionPop);
