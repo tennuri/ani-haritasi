@@ -326,7 +326,7 @@ body { padding-bottom: 54px; }
             <div class="photo-pick">
               <img id="photoPrev" alt="Seçilen fotoğraf" hidden>
               <label class="btn small" for="fPhoto">Fotoğraf seç</label>
-              <input type="file" id="fPhoto" accept="image/*" class="sr">
+              <input type="file" id="fPhoto" accept="image/*,.heic,.heif" class="sr">
               <button type="button" class="btn small" id="photoClear" hidden>Kaldır</button>
             </div>
             <span class="hint">Fotoğraf küçültülür, içindeki konum ve cihaz bilgisi silinir.</span>
@@ -1082,6 +1082,36 @@ const PROVINCES=[["Adana","M760.0,565.9L760.2,566.1L760.3,566.3L759.9,566.0L760.
   $("cancelBtn").onclick = closeComposer;
   $("fPlace").addEventListener("input", () => { $("fPlace").dataset.typed = "1"; });
 
+  // iPhone HEIC/HEIF photos: Safari opens them natively; other browsers need a converter,
+  // loaded only when such a file is picked (~1.3 MB).
+  const isHeic = (f) => /image\/hei[cf]/i.test(f.type) || /\.hei[cf]$/i.test(f.name || "");
+  let heicLib = null;
+  function loadHeic() {
+    if (window.heic2any) return Promise.resolve(window.heic2any);
+    if (!heicLib) heicLib = new Promise((ok, fail) => {
+      const sc = document.createElement("script");
+      sc.src = "https://cdn.jsdelivr.net/npm/heic2any@0.0.4/dist/heic2any.min.js";
+      sc.onload = () => window.heic2any ? ok(window.heic2any) : fail(new Error("heic"));
+      sc.onerror = () => { heicLib = null; fail(new Error("heic")); };
+      document.head.appendChild(sc);
+    });
+    return heicLib;
+  }
+  async function heicToJpeg(file) {
+    try {
+      const conv = await loadHeic();
+      const out = await conv({ blob: file, toType: "image/jpeg", quality: 0.9 });
+      return Array.isArray(out) ? out[0] : out;
+    } catch { throw new Error("Bu HEIC fotoğraf açılamadı. Telefonda ekran görüntüsünü alıp onu yüklemeyi dene."); }
+  }
+  async function preparePhoto(file) {
+    try { return await compress(file); }
+    catch (err) {
+      if (!isHeic(file)) throw err;
+      return compress(await heicToJpeg(file));
+    }
+  }
+
   // Re-encode through a canvas: shrinks the file and drops EXIF (GPS, camera) metadata.
   function compress(file) {
     return new Promise((resolve, reject) => {
@@ -1108,7 +1138,8 @@ const PROVINCES=[["Adana","M760.0,565.9L760.2,566.1L760.3,566.3L759.9,566.0L760.
   $("fPhoto").addEventListener("change", async (e) => {
     const f = e.target.files && e.target.files[0]; if (!f) return;
     $("formErr").textContent = "";
-    try { S.photo = await compress(f); $("photoPrev").src = S.photo; $("photoPrev").hidden = false; $("photoClear").hidden = false; }
+    if (isHeic(f)) $("formErr").textContent = "Fotoğraf dönüştürülüyor…";
+    try { S.photo = await preparePhoto(f); $("formErr").textContent = ""; $("photoPrev").src = S.photo; $("photoPrev").hidden = false; $("photoClear").hidden = false; }
     catch (err) { S.photo = null; $("formErr").textContent = err.message; }
     e.target.value = "";
   });
