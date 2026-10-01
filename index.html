@@ -220,8 +220,10 @@ header.top h1 em { font-style: normal; }
 .slider input[type="range"] { width: 100%; accent-color: var(--accent); }
 .slider .count { min-width: 5.5em; text-align: right; }
 .theme-btn { margin-left: auto; align-self: center; font-family: var(--display); }
-.signature { position: fixed; right: 12px; bottom: calc(6px + env(safe-area-inset-bottom, 0px)); z-index: 1150; font-family: var(--display); font-size: 12px; line-height: 1; color: var(--muted); background: var(--panel); border: 1px solid var(--line); padding: 3px 6px; pointer-events: none; }
-.signature a { pointer-events: auto; color: inherit; font-family: var(--body); font-size: 11px; }
+.signature { position: fixed; right: 12px; bottom: calc(6px + env(safe-area-inset-bottom, 0px)); z-index: 1150; display: flex; gap: 6px; pointer-events: none; }
+.signature .sig-box { font-family: var(--display); font-size: 12px; line-height: 1; color: var(--muted); background: var(--panel); border: 1px solid var(--line); padding: 3px 6px; text-decoration: none; }
+.signature a.sig-box { pointer-events: auto; }
+.signature a.sig-box:hover { color: var(--ink); border-color: var(--muted); }
 /* Leaf pile: a strip fixed to the bottom of the screen where falling leaves land and build up. */
 #pile { position: fixed; left: 0; right: 0; bottom: 0; width: 100%; height: 54px; pointer-events: none; z-index: 1100; image-rendering: pixelated; image-rendering: crisp-edges; }
 body { padding-bottom: 54px; }
@@ -342,7 +344,7 @@ body { padding-bottom: 54px; }
 <div class="toast" id="toast" hidden></div>
 <canvas id="leaves" aria-hidden="true"></canvas>
 <canvas id="pile" aria-hidden="true"></canvas>
-<div class="signature"><a href="gizlilik.html">Gizlilik ve kurallar</a> · @meptha</div>
+<div class="signature"><a class="sig-box" href="gizlilik.html">Gizlilik</a><span class="sig-box">@meptha</span></div>
 <script>
 // Falling pixel-art autumn leaves, drawn on a low-resolution canvas scaled up without smoothing.
 (() => {
@@ -706,6 +708,18 @@ const PROVINCES=[["Adana","M760.0,565.9L760.2,566.1L760.3,566.3L759.9,566.0L760.
 
   // OpenStreetMap Nominatim: search on submit and one reverse lookup per tap (their policy: max 1 request/second, no autocomplete).
   const NOMI = "https://nominatim.openstreetmap.org";
+  const nomiCache = new Map();
+  let nomiNext = 0;
+  async function nomi(path) {
+    if (nomiCache.has(path)) return nomiCache.get(path);
+    const wait = nomiNext - Date.now(); nomiNext = Math.max(Date.now(), nomiNext) + 1100;
+    if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+    const res = await fetch(NOMI + path);
+    if (!res.ok) throw new Error("nominatim " + res.status);
+    const j = await res.json();
+    if (nomiCache.size > 200) nomiCache.clear();
+    nomiCache.set(path, j); return j;
+  }
   function shortName(r) {
     const a = r.address || {};
     const parts = [r.name, a.road || a.pedestrian || a.square, a.suburb || a.neighbourhood || a.quarter, a.town || a.city_district || a.county].filter(Boolean);
@@ -713,7 +727,7 @@ const PROVINCES=[["Adana","M760.0,565.9L760.2,566.1L760.3,566.3L759.9,566.0L760.
   }
   async function reverseLookup(d) {
     try {
-      const r = await fetch(`${NOMI}/reverse?format=jsonv2&addressdetails=1&zoom=18&accept-language=tr&lat=${d.lat}&lon=${d.lng}`).then((x) => x.json());
+      const r = await nomi(`/reverse?format=jsonv2&addressdetails=1&zoom=18&accept-language=tr&lat=${d.lat.toFixed(5)}&lon=${d.lng.toFixed(5)}`);
       if (S.draft !== d || d.place) return;
       d.place = shortName(r);
       if (!$("placePop").hidden) showPop();
@@ -724,8 +738,16 @@ const PROVINCES=[["Adana","M760.0,565.9L760.2,566.1L760.3,566.3L759.9,566.0L760.
   let M;
   if (STREET) {
     $("map").setAttribute("hidden", ""); $("lmap").hidden = false; $("search").hidden = false;
-    const map = L.map("lmap", { zoomControl: false, minZoom: 5, maxZoom: 19, maxBounds: [[33.5, 23], [44, 47]], maxBoundsViscosity: 0.8 }).setView([39, 35.2], 6);
-    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> katkıcıları' }).addTo(map);
+    const map = L.map("lmap", { zoomControl: false, minZoom: 5, maxZoom: 20, maxBounds: [[33.5, 23], [44, 47]], maxBoundsViscosity: 0.8 }).setView([39, 35.2], 6);
+    // CARTO karoları: OSM'nin kendi sunucusu yoğun trafik için değil. Açık/koyu temaya göre değişir.
+    const tileAttr = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> katkıcıları &copy; <a href="https://carto.com/attributions">CARTO</a>';
+    const tileUrl = (dark) => `https://{s}.basemaps.cartocdn.com/${dark ? "dark_all" : "rastertiles/voyager"}/{z}/{x}/{y}{r}.png`;
+    const isDark = () => { const t = document.documentElement.dataset.theme; return t ? t === "dark" : matchMedia("(prefers-color-scheme: dark)").matches; };
+    let tileDark = isDark();
+    const tiles = L.tileLayer(tileUrl(tileDark), { maxZoom: 20, subdomains: "abcd", attribution: tileAttr }).addTo(map);
+    const syncTiles = () => { const d = isDark(); if (d !== tileDark) { tileDark = d; tiles.setUrl(tileUrl(d)); } };
+    new MutationObserver(syncTiles).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+    matchMedia("(prefers-color-scheme: dark)").addEventListener("change", syncTiles);
     const pinLayer = L.layerGroup().addTo(map), draftLayer = L.layerGroup().addTo(map);
     map.on("click", (e) => onMapTap(e.latlng.lat, e.latlng.lng));
     map.on("move zoom", positionPop);
@@ -757,7 +779,7 @@ const PROVINCES=[["Adana","M760.0,565.9L760.2,566.1L760.3,566.3L759.9,566.0L760.
       const q = $("q").value.trim(), out = $("results"); if (q.length < 2) return;
       out.hidden = false; out.textContent = "Aranıyor…";
       try {
-        const rs = await fetch(`${NOMI}/search?format=jsonv2&addressdetails=1&countrycodes=tr,cy&limit=6&accept-language=tr&q=${encodeURIComponent(q)}`).then((x) => x.json());
+        const rs = await nomi(`/search?format=jsonv2&addressdetails=1&countrycodes=tr,cy&limit=6&accept-language=tr&q=${encodeURIComponent(q)}`);
         out.textContent = "";
         if (!rs.length) { out.textContent = "Sonuç yok. Daha genel yaz, ör. \"Kadıköy Bahariye\"."; return; }
         for (const r of rs) {
