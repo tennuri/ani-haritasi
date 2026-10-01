@@ -62,12 +62,12 @@ th { color: var(--muted); font-weight: 600; }
   <div class="box" id="ozet">
     <strong>Kısaca</strong>
     <ul>
-      <li>Anı bırakmak için hesap, isim ya da e-posta gerekmez. Anının kimden geldiği saklanmaz.</li>
+      <li>Anı bırakmak ya da bir anıya yanıt yazmak için hesap, isim ya da e-posta gerekmez. Kimden geldiği saklanmaz; yanıtlar da “İsimsiz” görünür.</li>
       <li>Bıraktığın anı (yazı, tarih, yer, his, fotoğraf) herkese açık yayınlanır. Kendini ya da başkasını tanıtacak bilgi yazma.</li>
       <li>Fotoğraflar tarayıcında küçültülür; içindeki konum ve cihaz bilgisi (EXIF) sunucuya gitmeden silinir.</li>
       <li>Kötüye kullanımı önlemek için IP adresinin kendisi değil, geri çevrilemeyen bir özeti en fazla 24 saat tutulur.</li>
       <li>Ziyaretçi sayısı çerezsiz ve kimliksiz sayılır; reklam ya da takip aracı kullanılmaz.</li>
-      <li>Kural dışı anıları kartın altındaki <b>Bildir</b> butonuyla bildirebilirsin.</li>
+      <li>Kural dışı anıları ve yanıtları altlarındaki <b>Bildir</b> butonuyla bildirebilirsin.</li>
     </ul>
   </div>
 
@@ -83,6 +83,8 @@ th { color: var(--muted); font-weight: 600; }
     <tr><td>Anı yazısı, tarihi, his etiketi, yer tarifi, il</td><td>Anıyı haritada yayınlamak</td><td>Anı silinene kadar</td></tr>
     <tr><td>Pin konumu (yaklaşık 10 metreye yuvarlanır)</td><td>Anıyı haritada göstermek</td><td>Anı silinene kadar</td></tr>
     <tr><td>Fotoğraf (küçültülmüş, konum ve cihaz bilgisi silinmiş)</td><td>Anıyla birlikte göstermek</td><td>Anı silinene kadar</td></tr>
+    <tr><td>Bir anıya yazılan yanıt (yazı ve zamanı)</td><td>Yanıtı anının altında yayınlamak</td><td>Yanıt ya da anı silinene kadar</td></tr>
+    <tr><td>Bu tarayıcıdan yazdığın yanıtların kimlikleri</td><td>Kendi yanıtını “(sen)” diye göstermek (yalnızca senin tarayıcında, sunucuya gitmez)</td><td>Sen silene kadar</td></tr>
     <tr><td>IP adresinin tuzlanmış özeti (hash)</td><td>Hız sınırı, aynı kişinin aynı anıyı tekrar bildirmesini önlemek</td><td>En fazla 24 saat</td></tr>
     <tr><td>Ziyaret kaydı: açılan sayfa, gelinen site (ör. instagram.com), cihaz türü (mobil/masaüstü) ve IP ile tarayıcı bilgisinin o güne özel tuzla alınmış özeti</td><td>Kaç kişinin siteyi ziyaret ettiğini saymak. Çerez kullanılmaz; tuz ertesi gün silindiği için aynı kişi günler arasında izlenemez</td><td>Özet geri çevrilemez hâle gelir; sayılar istatistik olarak kalır</td></tr>
     <tr><td>Tema tercihi</td><td>Açık/koyu görünümü hatırlamak (yalnızca senin tarayıcında)</td><td>Sen silene kadar</td></tr>
@@ -90,13 +92,13 @@ th { color: var(--muted); font-weight: 600; }
   <p>İsim, e-posta, telefon, hesap ya da çerez tabanlı takip kullanılmaz. Anı yazısına telefon numarası, e-posta ya da kimlik numarası benzeri bir şey yazılırsa anı sistem tarafından reddedilir. Kullanıcıların yazdıklarında kendileri ya da başkaları hakkında kişisel veri bulunabilir; bu yüzden aşağıdaki kurallar bunu yasaklar ve bu tür içerik bildirildiğinde kaldırılır.</p>
 
   <h3>Hukuki sebep</h3>
-  <p>Anılar, onları paylaşan kişinin kendi isteğiyle herkese açık hâle getirdiği içeriklerdir (KVKK md. 5/2-d). Kötüye kullanımı önlemeye yönelik IP özeti, hizmetin güvenliği için veri sorumlusunun meşru menfaatine dayanır (KVKK md. 5/2-f).</p>
+  <p>Anılar ve yanıtlar, onları paylaşan kişinin kendi isteğiyle herkese açık hâle getirdiği içeriklerdir (KVKK md. 5/2-d). Kötüye kullanımı önlemeye yönelik IP özeti, hizmetin güvenliği için veri sorumlusunun meşru menfaatine dayanır (KVKK md. 5/2-f).</p>
 
   <h3>Kimlere aktarılır</h3>
   <p>Sitenin çalışması için aşağıdaki hizmet sağlayıcılar kullanılır. Bunların sunucuları yurt dışındadır; bu nedenle veriler, KVKK md. 9 kapsamında yurt dışına aktarılmış olur.</p>
   <ul>
-    <li><b>Supabase</b> (veritabanı, sunucu Almanya/Frankfurt): anılar ve IP özetleri burada saklanır.</li>
-    <li><b>Cloudflare Turnstile</b> (robot kontrolü): anı bırakırken tarayıcı ve IP bilgilerin Cloudflare tarafından robot olup olmadığını anlamak için işlenir.</li>
+    <li><b>Supabase</b> (veritabanı, sunucu Almanya/Frankfurt): anılar, yanıtlar ve IP özetleri burada saklanır.</li>
+    <li><b>Cloudflare Turnstile</b> (robot kontrolü): anı ya da yanıt bırakırken tarayıcı ve IP bilgilerin Cloudflare tarafından robot olup olmadığını anlamak için işlenir.</li>
     <li><b>GitHub Pages</b> (sitenin barındırılması), <b>OpenStreetMap</b> (harita karoları ve adres arama), <b>Google Fonts</b> ve <b>unpkg</b> (yazı tipi ve harita kütüphanesi): sayfayı açtığında tarayıcın bu sunuculara bağlanır, bu yüzden IP adresini görebilirler.</li>
   </ul>
   <p>Bunların dışında veriler kimseyle paylaşılmaz, satılmaz, reklam için kullanılmaz. Yasal bir zorunluluk olursa yetkili mercilerle yalnızca elde olan veriler (anının kendisi) paylaşılabilir; anıyı kimin bıraktığı bilgisi sistemde yoktur.</p>
@@ -118,8 +120,8 @@ th { color: var(--muted); font-weight: 600; }
   </ul>
   <h3>Sorumluluk</h3>
   <ul>
-    <li>Bıraktığın anının içeriğinden sen sorumlusun. Site, kullanıcıların yazdıklarını önceden denetlemez; bildirilen ya da fark edilen kural dışı içerik kaldırılır.</li>
-    <li>Site herhangi bir anıyı gerekçe göstermeden gizleyebilir ya da silebilir.</li>
+    <li>Bıraktığın anının ve yanıtın içeriğinden sen sorumlusun. Site, kullanıcıların yazdıklarını önceden denetlemez; bildirilen ya da fark edilen kural dışı içerik kaldırılır.</li>
+    <li>Site herhangi bir anıyı ya da yanıtı gerekçe göstermeden gizleyebilir ya da silebilir.</li>
     <li>Hizmet olduğu gibi sunulur; kesintisiz çalışacağı ya da verilerin kalıcı olarak saklanacağı garanti edilmez.</li>
     <li>Bu koşullar zaman zaman güncellenebilir; güncel sürüm her zaman bu sayfadadır.</li>
   </ul>

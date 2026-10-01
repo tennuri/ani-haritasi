@@ -176,6 +176,17 @@ header.top p { margin: 0; color: var(--muted); max-width: 52ch; }
 .lightbox img { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 6px; box-shadow: 0 12px 40px rgb(0 0 0 / .5); }
 .lightbox .lb-close { position: absolute; top: calc(12px + env(safe-area-inset-top, 0px)); right: 12px; width: 44px; height: 44px; border-radius: 50%; border: 0; background: rgb(255 255 255 / .15); color: #fff; font-size: 24px; line-height: 1; }
 .mem .who { font-size: 12px; color: var(--muted); }
+.mem .rbtn[aria-expanded="true"] { background: var(--accent-soft); }
+.replies { display: grid; gap: 8px; margin-top: 2px; padding-left: 12px; border-left: 2px solid var(--line); }
+.reply { display: grid; gap: 2px; }
+.reply p { font-size: 14px; }
+.reply .r-foot { display: flex; gap: 8px; align-items: center; font-family: var(--mono); font-size: 11px; color: var(--muted); }
+.reply .r-foot button { border: 0; background: none; padding: 0; color: inherit; text-decoration: underline; font: inherit; cursor: pointer; }
+.reply-form { display: grid; gap: 6px; }
+.reply-form textarea { width: 100%; min-height: 64px; resize: vertical; border: 2px solid var(--line); border-radius: 8px; background: var(--bg); padding: 8px 10px; font-size: 14px; }
+.reply-form .row { justify-content: space-between; }
+.reply-form .hint { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+.replies .none { font-size: 13px; color: var(--muted); margin: 0; }
 .empty { color: var(--muted); font-size: 14px; }
 .empty b { color: var(--ink); }
 
@@ -314,6 +325,7 @@ body { padding-bottom: 54px; }
       <section class="card" id="listCard">
         <div class="list-head"><h2 id="listTitle"></h2><span class="count" id="listCount"></span></div>
         <div class="mems" id="mems"></div>
+        <div id="replyCaptcha" hidden></div>
       </section>
 
       <section class="card" id="recentCard" aria-labelledby="recentTitle">
@@ -515,7 +527,7 @@ const PROVINCES=[["Adana","M760.0,565.9L760.2,566.1L760.3,566.3L759.9,566.0L760.
   const fmtDate = (s) => { const [y, m, d] = s.split("-").map(Number); return `${d} ${MONTHS[m - 1]} ${y}`; };
 
   // ---- state ----
-  const S = { memories: [], selDate: TODAY, view: { y: today.getFullYear(), m: today.getMonth() }, mode: "day", selId: null, draft: null, mood: null, photo: null };
+  const S = { memories: [], selDate: TODAY, view: { y: today.getFullYear(), m: today.getMonth() }, mode: "day", selId: null, draft: null, replies: new Map(), openReplies: new Set(), replyDrafts: new Map(), mood: null, photo: null };
 
   // ---- store: Supabase when configured, else shared artifact db, else this browser ----
   // Supabase panelinde Project Settings > API: "Project URL" ve "anon public" anahtarı.
@@ -524,6 +536,11 @@ const PROVINCES=[["Adana","M760.0,565.9L760.2,566.1L760.3,566.3L759.9,566.0L760.
   const TURNSTILE_SITE_KEY = "0x4AAAAAAFLBbG0t1xxcgtGN";
   const SUPABASE = { url: "https://iitctgsawviphtskvizt.supabase.co", anonKey: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlpdGN0Z3Nhd3ZpcGh0c2t2aXp0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA4NDg5NzAsImV4cCI6MjEwNjQyNDk3MH0.TfHpysUG8TSx1H12fFw-hUD33jCubzon0grMw-UIg7c" };
   const LS_KEY = "ani-haritasi-v1";
+  const uid = () => (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2)).replace(/[^a-zA-Z0-9-]/g, "");
+  // Bu tarayıcıdan yazılan yanıtların kimlikleri: yalnızca "senin" etiketi için, sunucuya gitmez.
+  const MINE_KEY = "ani-haritasi-my-replies";
+  const myReplies = new Set((() => { try { return JSON.parse(localStorage.getItem(MINE_KEY) || "[]"); } catch { return []; } })());
+  const rememberMine = (id) => { if (!id) return; myReplies.add(id); try { localStorage.setItem(MINE_KEY, JSON.stringify([...myReplies].slice(-200))); } catch {} };
   const local = {
     kind: "local",
     read() { try { return JSON.parse(localStorage.getItem(LS_KEY) || "[]"); } catch { return []; } },
@@ -543,6 +560,17 @@ const PROVINCES=[["Adana","M760.0,565.9L760.2,566.1L760.3,566.3L759.9,566.0L760.
       this.cb && this.cb(all);
     },
     canRemove: true,
+    canReply: true,
+    readReplies() { try { return JSON.parse(localStorage.getItem(LS_KEY + ":r") || "[]"); } catch { return []; } },
+    get replyList() { return this.readReplies(); },
+    async addReply(memoryId, text) {
+      const all = this.readReplies();
+      const id = uid();
+      all.push({ id, memoryId, text, createdAt: Date.now() });
+      try { localStorage.setItem(LS_KEY + ":r", JSON.stringify(all)); } catch { throw new Error("Tarayıcı depolaması dolu ya da kapalı."); }
+      this.cb && this.cb(this.read());
+      return id;
+    },
   };
   function sharedStore(db, user) {
     return {
@@ -585,12 +613,25 @@ const PROVINCES=[["Adana","M760.0,565.9L760.2,566.1L760.3,566.3L759.9,566.0L760.
       kind: "supabase",
       canRemove: false,
       canReport: true,
+      canReply: true,
+      replyList: [],
       async refresh() {
         try {
-          const rows = await call(`/rest/v1/memories?select=${COLS}&order=created_at.desc&limit=2000`);
+          const [rows, reps] = await Promise.all([
+            call(`/rest/v1/memories?select=${COLS}&order=created_at.desc&limit=2000`),
+            // Yanıt tablosu henüz kurulmadıysa anılar yine de görünsün.
+            call("/rest/v1/replies?select=id,memory_id,text,created_at&order=created_at.asc&limit=5000").catch(() => this.replyList.map((r) => r._raw)),
+          ]);
+          this.replyList = (reps || []).filter(Boolean).map((r) => ({ id: r.id, memoryId: r.memory_id, text: r.text, createdAt: Date.parse(r.created_at), _raw: r }));
           this.cb && this.cb(rows.map(map));
         } catch { note("Anılara şu an ulaşılamıyor. Sayfayı yenile."); }
       },
+      async addReply(memoryId, text, captcha) {
+        const id = await call("/rest/v1/rpc/submit_reply", { method: "POST", body: JSON.stringify({ p_memory: memoryId, p_text: text, p_captcha: captcha || null }) });
+        await this.refresh();
+        return id;
+      },
+      async reportReply(id) { await call("/rest/v1/rpc/report_reply", { method: "POST", body: JSON.stringify({ p_id: id }) }); },
       subscribe(cb) {
         this.cb = cb; this.refresh();
         setInterval(() => { if (!document.hidden) this.refresh(); }, 60000);
@@ -629,7 +670,16 @@ const PROVINCES=[["Adana","M760.0,565.9L760.2,566.1L760.3,566.3L759.9,566.0L760.
       store = local;
       note("Anılar şimdilik yalnızca bu tarayıcıda saklanıyor.");
     }
-    store.subscribe((list) => { S.memories = list.filter(valid); renderAll(); });
+    store.subscribe((list) => {
+      S.memories = list.filter(valid);
+      S.replies = new Map();
+      for (const r of (store.canReply && store.replyList) || []) {
+        if (!r || typeof r.text !== "string") continue;
+        if (!S.replies.has(r.memoryId)) S.replies.set(r.memoryId, []);
+        S.replies.get(r.memoryId).push(r);
+      }
+      renderAll();
+    });
   }
   const valid = (m) => m && typeof m.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(m.date) && typeof m.text === "string" && Number.isFinite(m.lat) && Number.isFinite(m.lng);
 
@@ -921,6 +971,9 @@ const PROVINCES=[["Adana","M760.0,565.9L760.2,566.1L760.3,566.3L759.9,566.0L760.
 
   const photoCache = new Map();
   function renderList() {
+    // Yenileme sırasında yanıt kutusuna yazan kişinin imleci kaybolmasın.
+    const act = document.activeElement;
+    const keep = act && act.matches && act.matches(".reply-form textarea") ? { id: act.dataset.mem, a: act.selectionStart, b: act.selectionEnd } : null;
     const list = visible().sort(sortMem);
     const title = S.mode === "all" ? "Bütün anılar" : S.mode === "anniv" ? `Her yıl ${fmtDate(S.selDate).split(" ").slice(0, 2).join(" ")}` : fmtDate(S.selDate);
     $("listTitle").textContent = title;
@@ -978,10 +1031,86 @@ const PROVINCES=[["Adana","M760.0,565.9L760.2,566.1L760.3,566.3L759.9,566.0L760.
         };
         foot.appendChild(rp);
       }
+      if (store.canReply) {
+        const n = (S.replies.get(m.id) || []).length;
+        const open = S.openReplies.has(m.id);
+        const rb = document.createElement("button"); rb.type = "button"; rb.className = "btn small rbtn";
+        rb.textContent = n ? `Yanıtlar (${n})` : "Yanıtla";
+        rb.setAttribute("aria-expanded", String(open));
+        rb.onclick = () => {
+          if (S.openReplies.has(m.id)) S.openReplies.delete(m.id); else S.openReplies.add(m.id);
+          renderList();
+          const ta = document.querySelector(`.reply-form textarea[data-mem="${CSS.escape(m.id)}"]`);
+          if (ta && S.openReplies.has(m.id) && !n) ta.focus();
+        };
+        foot.insertBefore(rb, who.nextSibling);
+      }
       el.appendChild(foot);
-      el.onclick = (ev) => { if (ev.target.closest("button")) return; selectMemory(m.id, false); };
+      if (store.canReply && S.openReplies.has(m.id)) el.appendChild(replySection(m));
+      el.onclick = (ev) => { if (ev.target.closest("button, textarea, .replies")) return; selectMemory(m.id, false); };
       box.appendChild(el);
     }
+    if (keep) {
+      const ta = document.querySelector(`.reply-form textarea[data-mem="${CSS.escape(keep.id)}"]`);
+      if (ta) { ta.focus(); try { ta.setSelectionRange(keep.a, keep.b); } catch {} }
+    }
+  }
+
+  // ---- anonim yanıtlar ----
+  function replySection(m) {
+    const sec = document.createElement("div"); sec.className = "replies";
+    const reps = S.replies.get(m.id) || [];
+    if (!reps.length) { const e = document.createElement("p"); e.className = "none"; e.textContent = "Henüz yanıt yok. İlk yanıtı sen yaz."; sec.appendChild(e); }
+    for (const r of reps) {
+      const it = document.createElement("div"); it.className = "reply" + (myReplies.has(r.id) ? " mine" : "");
+      const p = document.createElement("p"); p.textContent = r.text;
+      const f = document.createElement("div"); f.className = "r-foot";
+      const w = document.createElement("span"); w.textContent = (myReplies.has(r.id) ? "İsimsiz (sen) · " : "İsimsiz · ") + (Number.isFinite(r.createdAt) ? ago(r.createdAt) : "");
+      f.appendChild(w);
+      if (store.reportReply && !myReplies.has(r.id)) {
+        const rp = document.createElement("button"); rp.type = "button"; rp.textContent = "Bildir";
+        rp.title = "Kişisel bilgi, nefret ya da taciz içeriyorsa bildir";
+        rp.onclick = () => {
+          if (rp.dataset.armed) {
+            rp.disabled = true;
+            store.reportReply(r.id).then(() => { rp.textContent = "Bildirildi"; toast("Teşekkürler, bildirimin alındı"); })
+              .catch((ex) => { rp.disabled = false; toast((ex && ex.message) || "Bildirilemedi, tekrar dene"); });
+          } else { rp.dataset.armed = "1"; rp.textContent = "Emin misin? Bildir"; }
+        };
+        f.appendChild(rp);
+      }
+      it.append(p, f); sec.appendChild(it);
+    }
+    const form = document.createElement("form"); form.className = "reply-form"; form.noValidate = true;
+    const ta = document.createElement("textarea"); ta.maxLength = 500; ta.dataset.mem = m.id;
+    ta.placeholder = "İsimsiz bir yanıt yaz…"; ta.setAttribute("aria-label", "Yanıtın");
+    ta.value = S.replyDrafts.get(m.id) || "";
+    const row = document.createElement("div"); row.className = "row";
+    const hint = document.createElement("span"); hint.className = "hint"; hint.textContent = `${ta.value.length} / 500 · adın görünmez`;
+    const send = document.createElement("button"); send.type = "submit"; send.className = "btn small primary"; send.textContent = "Yanıtla";
+    const err = document.createElement("div"); err.className = "err"; err.setAttribute("role", "alert");
+    ta.oninput = () => { S.replyDrafts.set(m.id, ta.value); hint.textContent = `${ta.value.length} / 500 · adın görünmez`; err.textContent = ""; };
+    ta.onkeydown = (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); form.requestSubmit(); } };
+    row.append(hint, send); form.append(ta, row, err); sec.appendChild(form);
+    RCAP.setup(err);
+    form.onsubmit = async (e) => {
+      e.preventDefault();
+      const text = ta.value.trim();
+      if (text.length < 2) { err.textContent = "Yanıt en az 2 karakter olmalı."; return; }
+      if (needCaptcha() && !RCAP.token) { err.textContent = "Robot kontrolü bitmedi. Birkaç saniye bekleyip tekrar dene."; return; }
+      send.disabled = true; ta.disabled = true; err.textContent = "";
+      try {
+        const id = await store.addReply(m.id, text, RCAP.token);
+        rememberMine(id);
+        S.replyDrafts.delete(m.id);
+        toast("Yanıtın eklendi");
+        renderList();
+      } catch (ex) {
+        send.disabled = false; ta.disabled = false;
+        err.textContent = (ex && ex.message) || "Gönderilemedi, tekrar dene.";
+      } finally { RCAP.reset(); }
+    };
+    return sec;
   }
 
   function selectMemory(id, fromMap) {
@@ -1043,37 +1172,46 @@ const PROVINCES=[["Adana","M760.0,565.9L760.2,566.1L760.3,566.3L759.9,566.0L760.
   $("fText").addEventListener("input", () => { $("textCount").textContent = `${$("fText").value.length} / 1200`; });
 
   // ---- bot kontrolü (yalnızca ortak sunucuya yazarken) ----
-  const CAP = { id: null, token: null, loading: null };
+  let tsLoading = null;
   const needCaptcha = () => !!TURNSTILE_SITE_KEY && store.kind === "supabase";
   function loadTurnstile() {
     if (window.turnstile) return Promise.resolve();
-    if (!CAP.loading) CAP.loading = new Promise((ok, fail) => {
+    if (!tsLoading) tsLoading = new Promise((ok, fail) => {
       const sc = document.createElement("script");
       sc.src = "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
-      sc.async = true; sc.onload = ok; sc.onerror = () => { CAP.loading = null; fail(); };
+      sc.async = true; sc.onload = ok; sc.onerror = () => { tsLoading = null; fail(); };
       document.head.appendChild(sc);
     });
-    return CAP.loading;
+    return tsLoading;
   }
-  function setupCaptcha() {
-    if (!needCaptcha()) return;
-    $("captcha").hidden = false;
-    if (CAP.id !== null) return;
-    loadTurnstile().then(() => {
-      if (CAP.id !== null) return;
-      CAP.id = window.turnstile.render("#captcha", {
-        sitekey: TURNSTILE_SITE_KEY, language: "tr", appearance: "interaction-only",
-        theme: document.documentElement.dataset.theme === "dark" ? "dark" : document.documentElement.dataset.theme === "light" ? "light" : "auto",
-        callback: (t) => { CAP.token = t; },
-        "expired-callback": () => { CAP.token = null; },
-        "error-callback": () => { CAP.token = null; },
-      });
-    }).catch(() => { $("formErr").textContent = "Robot kontrolü yüklenemedi. Reklam engelleyiciyi kapatıp sayfayı yenile."; });
+  // Her form için bir Turnstile kutusu: anı formu (#captcha) ve yanıtlar (#replyCaptcha).
+  function makeCaptcha(sel) {
+    const c = { id: null, token: null };
+    c.setup = (errEl) => {
+      if (!needCaptcha()) return;
+      document.querySelector(sel).hidden = false;
+      if (c.id !== null) return;
+      loadTurnstile().then(() => {
+        if (c.id !== null) return;
+        c.id = window.turnstile.render(sel, {
+          sitekey: TURNSTILE_SITE_KEY, language: "tr", appearance: "interaction-only",
+          theme: document.documentElement.dataset.theme === "dark" ? "dark" : document.documentElement.dataset.theme === "light" ? "light" : "auto",
+          callback: (t) => { c.token = t; },
+          "expired-callback": () => { c.token = null; },
+          "error-callback": () => { c.token = null; },
+        });
+      }).catch(() => { if (errEl) errEl.textContent = "Robot kontrolü yüklenemedi. Reklam engelleyiciyi kapatıp sayfayı yenile."; });
+    };
+    c.reset = () => {
+      c.token = null;
+      if (c.id !== null && window.turnstile) window.turnstile.reset(c.id);
+    };
+    return c;
   }
-  function resetCaptcha() {
-    CAP.token = null;
-    if (CAP.id !== null && window.turnstile) window.turnstile.reset(CAP.id);
-  }
+  const CAP = makeCaptcha("#captcha");
+  const RCAP = makeCaptcha("#replyCaptcha");
+  const setupCaptcha = () => CAP.setup($("formErr"));
+  const resetCaptcha = () => CAP.reset();
 
   function openComposer() {
     $("composeCard").hidden = false;
@@ -1171,7 +1309,7 @@ const PROVINCES=[["Adana","M760.0,565.9L760.2,566.1L760.3,566.3L759.9,566.0L760.
     if (date > TODAY) { err.textContent = "Tarih bugünden sonra olamaz; burası geçmiş anılar için."; return; }
     if (date < `${MIN_YEAR}-01-01`) { err.textContent = `Tarih ${MIN_YEAR} ve sonrası olmalı.`; return; }
     if (text.length < 3) { err.textContent = "Birkaç kelime yaz, en az 3 karakter."; return; }
-    const id = (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2)).replace(/[^a-zA-Z0-9-]/g, "");
+    const id = uid();
     const m = { id, date, text: text.slice(0, 1200), lat: S.draft.lat, lng: S.draft.lng, city: S.draft.city, place: $("fPlace").value.trim().slice(0, 120) || null, mood: S.mood || null, hasPhoto: !!S.photo, createdAt: Date.now() };
     if (needCaptcha() && !CAP.token) { err.textContent = "Robot kontrolü bitmedi. Birkaç saniye bekleyip tekrar dene."; return; }
     const btn = $("submitBtn"); btn.disabled = true; btn.textContent = "Bırakılıyor…";

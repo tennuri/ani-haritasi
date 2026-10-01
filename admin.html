@@ -47,6 +47,12 @@ input[type=email], input[type=password], input[type=number] { border: 1px solid 
 .tabs { display: flex; flex-wrap: wrap; gap: 6px; }
 .tabs button { border: 1px solid var(--line); background: var(--panel); border-radius: 999px; padding: 4px 14px; }
 .tabs button[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.kinds { display: flex; gap: 0; margin-bottom: 10px; }
+.kinds button { border: 1px solid var(--ink); background: var(--panel); padding: 6px 16px; font-weight: 600; }
+.kinds button:first-child { border-radius: 8px 0 0 8px; }
+.kinds button:last-child { border-radius: 0 8px 8px 0; border-left: 0; }
+.kinds button[aria-pressed="true"] { background: var(--ink); color: var(--bg); }
+.parent { font-size: 13px; color: var(--muted); border-left: 3px solid var(--line); padding-left: 10px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .settings { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; align-items: end; }
 .switch { display: flex; align-items: center; gap: 8px; color: var(--ink); font-size: 15px; }
 .list { display: grid; gap: 10px; }
@@ -127,10 +133,14 @@ a { color: var(--accent); }
     <div class="card" style="display:grid;gap:12px;margin-bottom:16px">
       <strong>Ayarlar</strong>
       <div class="settings">
-        <label class="switch"><input type="checkbox" id="sApproval"> Yeni anılar onayımdan sonra yayınlansın</label>
+        <label class="switch"><input type="checkbox" id="sApproval"> Yeni anılar ve yanıtlar onayımdan sonra yayınlansın</label>
         <label>Kaç şikâyette otomatik gizlensin <input type="number" id="sHide" min="1" max="999"></label>
         <label>Bir kişi saatte en fazla kaç anı bırakabilir <input type="number" id="sRate" min="1" max="999"></label>
+        <label>Bir kişi saatte en fazla kaç yanıt yazabilir <input type="number" id="sReplyRate" min="1" max="999"></label>
       </div>
+    </div>
+    <div class="kinds" role="group" aria-label="İçerik türü">
+      <button data-kind="memories" aria-pressed="true">Anılar</button><button data-kind="replies" aria-pressed="false">Yanıtlar</button>
     </div>
     <div class="tabs" role="group" aria-label="Görünüm">
       <button data-view="review" aria-pressed="true">İncelenecek</button>
@@ -223,12 +233,14 @@ a { color: var(--accent); }
       const s = await rpc("admin_settings");
       $("sApproval").checked = s.require_approval === "true";
       $("sHide").value = s.hide_after_reports; $("sRate").value = s.max_posts_per_hour;
+      $("sReplyRate").value = s.max_replies_per_hour || 15;
     } catch (e) { toast(e.message); }
   }
   const setSetting = (k, v) => rpc("admin_set_setting", { p_key: k, p_value: String(v) }).then(() => toast("Ayar kaydedildi")).catch((e) => { toast(e.message); loadSettings(); });
   $("sApproval").onchange = (e) => setSetting("require_approval", e.target.checked);
   $("sHide").onchange = (e) => setSetting("hide_after_reports", e.target.value);
   $("sRate").onchange = (e) => setSetting("max_posts_per_hour", e.target.value);
+  $("sReplyRate").onchange = (e) => setSetting("max_replies_per_hour", e.target.value);
 
   // ---- visitor stats ----
   let statDays = 30, statTimer = null, lastDays = null, rsT;
@@ -319,14 +331,44 @@ a { color: var(--accent); }
     load();
   });
 
+  let kind = "memories";
+  document.querySelectorAll(".kinds button").forEach((b) => b.onclick = () => {
+    kind = b.dataset.kind;
+    document.querySelectorAll(".kinds button").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+    load();
+  });
+
   async function load() {
     const box = $("list"); box.innerHTML = '<p class="empty">Yükleniyor…</p>';
+    const isR = kind === "replies", noun = isR ? "yanıt" : "anı";
     let rows;
-    try { rows = await rpc("admin_memories", { p_view: view }); } catch (e) { box.innerHTML = ""; $("count").textContent = e.message; return; }
-    $("count").textContent = rows.length ? `${rows.length} anı` : "";
+    try { rows = await rpc(isR ? "admin_replies" : "admin_memories", { p_view: view }); } catch (e) { box.innerHTML = ""; $("count").textContent = e.message; return; }
+    $("count").textContent = rows.length ? `${rows.length} ${noun}` : "";
     box.innerHTML = "";
-    if (!rows.length) { box.innerHTML = '<p class="empty">Burada bekleyen anı yok.</p>'; return; }
-    for (const m of rows) box.appendChild(card(m));
+    if (!rows.length) { box.innerHTML = `<p class="empty">Burada bekleyen ${noun} yok.</p>`; return; }
+    for (const m of rows) box.appendChild(isR ? replyCard(m) : card(m));
+  }
+
+  function replyCard(r) {
+    const el = document.createElement("article"); el.className = "card mem";
+    const meta = document.createElement("div"); meta.className = "meta";
+    const badge = document.createElement("span"); badge.className = "badge " + r.status; badge.textContent = STATUS[r.status] || r.status;
+    meta.appendChild(badge);
+    if (r.reports > 0) { const x = document.createElement("span"); x.className = "badge rep"; x.textContent = `${r.reports} şikâyet`; meta.appendChild(x); }
+    const t = document.createElement("span"); t.textContent = "yazıldı " + new Date(r.created_at).toLocaleString("tr-TR", { dateStyle: "short", timeStyle: "short" }); meta.appendChild(t);
+    el.appendChild(meta);
+    const parent = document.createElement("div"); parent.className = "parent";
+    parent.textContent = `Yanıtlanan anı (${r.memory_city || "?"}): ${r.memory_text || ""}`;
+    el.appendChild(parent);
+    const p = document.createElement("p"); p.textContent = r.text; el.appendChild(p);
+    const actions = document.createElement("div"); actions.className = "actions";
+    const setStatus = (s, msg) => async () => { await rpc("admin_set_reply_status", { p_id: r.id, p_status: s }); toast(msg); load(); };
+    if (r.status !== "published") actions.appendChild(btn("Yayınla", "ok", setStatus("published", "Yanıt yayında")));
+    else if (r.reports > 0) actions.appendChild(btn("Sorun yok, şikâyetleri sil", "ok", setStatus("published", "Şikâyetler temizlendi")));
+    if (r.status !== "hidden") actions.appendChild(btn("Gizle", "", setStatus("hidden", "Yanıt gizlendi")));
+    actions.appendChild(btn("Sil", "danger", async () => { await rpc("admin_delete_reply", { p_id: r.id }); toast("Yanıt silindi"); load(); }, "Emin misin? Kalıcı sil"));
+    el.appendChild(actions);
+    return el;
   }
 
   function btn(label, cls, fn, confirmLabel) {
