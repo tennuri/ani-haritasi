@@ -1138,7 +1138,20 @@ const PROVINCES=[["Adana","M760.0,565.9L760.2,566.1L760.3,566.3L759.9,566.0L760.
   function setHint() {
     $("mapHint").innerHTML = STREET ? "<b>Yakınlaştır ya da yer ara</b>, anının geçtiği noktaya dokun." : "<b>Haritada bir yere dokun</b>, oraya anı bırak. Kırmızı noktalar seçili günün anıları.";
   }
-  setHint(); renderAll(); initStore();
+
+  // Çerezsiz ziyaret sayacı: sayfa, gelinen site ve cihaz türü. Kimlik ya da çerez yok.
+  function trackVisit(cfg) {
+    if (!cfg.url || !/^https?:$/.test(location.protocol) || /^(localhost|127\.)/.test(location.hostname)) return;
+    let ref = null;
+    try { const h = new URL(document.referrer).hostname.replace(/^www\./, ""); if (h && h !== location.hostname.replace(/^www\./, "")) ref = h; } catch {}
+    const device = matchMedia("(pointer: coarse)").matches && Math.min(screen.width, screen.height) < 820 ? "mobil" : "masaüstü";
+    fetch(cfg.url + "/rest/v1/rpc/track_visit", {
+      method: "POST", keepalive: true,
+      headers: { apikey: cfg.anonKey, Authorization: "Bearer " + cfg.anonKey, "Content-Type": "application/json" },
+      body: JSON.stringify({ p_path: location.pathname, p_referrer: ref, p_device: device }),
+    }).catch(() => {});
+  }
+  setHint(); renderAll(); initStore(); trackVisit(SUPABASE);
 })();
 </script>
 

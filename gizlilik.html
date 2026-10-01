@@ -47,6 +47,7 @@ th { color: var(--muted); font-weight: 600; }
       <li>Bıraktığın anı (yazı, tarih, yer, his, fotoğraf) herkese açık yayınlanır. Kendini ya da başkasını tanıtacak bilgi yazma.</li>
       <li>Fotoğraflar tarayıcında küçültülür; içindeki konum ve cihaz bilgisi (EXIF) sunucuya gitmeden silinir.</li>
       <li>Kötüye kullanımı önlemek için IP adresinin kendisi değil, geri çevrilemeyen bir özeti en fazla 24 saat tutulur.</li>
+      <li>Ziyaretçi sayısı çerezsiz ve kimliksiz sayılır; reklam ya da takip aracı kullanılmaz.</li>
       <li>Kural dışı anıları kartın altındaki <b>Bildir</b> butonuyla bildirebilirsin.</li>
     </ul>
   </div>
@@ -64,6 +65,7 @@ th { color: var(--muted); font-weight: 600; }
     <tr><td>Pin konumu (yaklaşık 10 metreye yuvarlanır)</td><td>Anıyı haritada göstermek</td><td>Anı silinene kadar</td></tr>
     <tr><td>Fotoğraf (küçültülmüş, konum ve cihaz bilgisi silinmiş)</td><td>Anıyla birlikte göstermek</td><td>Anı silinene kadar</td></tr>
     <tr><td>IP adresinin tuzlanmış özeti (hash)</td><td>Hız sınırı, aynı kişinin aynı anıyı tekrar bildirmesini önlemek</td><td>En fazla 24 saat</td></tr>
+    <tr><td>Ziyaret kaydı: açılan sayfa, gelinen site (ör. instagram.com), cihaz türü (mobil/masaüstü) ve IP ile tarayıcı bilgisinin o güne özel tuzla alınmış özeti</td><td>Kaç kişinin siteyi ziyaret ettiğini saymak. Çerez kullanılmaz; tuz ertesi gün silindiği için aynı kişi günler arasında izlenemez</td><td>Özet geri çevrilemez hâle gelir; sayılar istatistik olarak kalır</td></tr>
     <tr><td>Tema tercihi</td><td>Açık/koyu görünümü hatırlamak (yalnızca senin tarayıcında)</td><td>Sen silene kadar</td></tr>
   </table></div>
   <p>İsim, e-posta, telefon, hesap ya da çerez tabanlı takip kullanılmaz. Anı yazısına telefon numarası, e-posta ya da kimlik numarası benzeri bir şey yazılırsa anı sistem tarafından reddedilir. Kullanıcıların yazdıklarında kendileri ya da başkaları hakkında kişisel veri bulunabilir; bu yüzden aşağıdaki kurallar bunu yasaklar ve bu tür içerik bildirildiğinde kaldırılır.</p>
@@ -106,5 +108,24 @@ th { color: var(--muted); font-weight: 600; }
   <h2 id="kaldirma">İçerik kaldırma ve şikâyet</h2>
   <p>Bir anı seni ya da başkasını tanıtıyorsa veya kurallara aykırıysa, kartın altındaki <b>Bildir</b> butonunu kullan. Birden fazla bildirim alan anılar otomatik olarak gizlenir ve incelenir. Acil durumlarda ya da kişilik haklarının ihlali iddiasıyla (5651 sayılı Kanun kapsamında) <a href="https://github.com/tennuri/ani-haritasi/issues">bize yazabilirsin</a>; anının tarihini, yerini ve ilk birkaç kelimesini belirtmen yeterli. Kişisel bilgilerini başvuruda paylaşmana gerek yok.</p>
 </main>
+<script>
+(() => {
+  const SUPABASE = { url: "https://iitctgsawviphtskvizt.supabase.co", anonKey: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlpdGN0Z3Nhd3ZpcGh0c2t2aXp0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA4NDg5NzAsImV4cCI6MjEwNjQyNDk3MH0.TfHpysUG8TSx1H12fFw-hUD33jCubzon0grMw-UIg7c" };
+
+  // Çerezsiz ziyaret sayacı: sayfa, gelinen site ve cihaz türü. Kimlik ya da çerez yok.
+  function trackVisit(cfg) {
+    if (!cfg.url || !/^https?:$/.test(location.protocol) || /^(localhost|127\.)/.test(location.hostname)) return;
+    let ref = null;
+    try { const h = new URL(document.referrer).hostname.replace(/^www\./, ""); if (h && h !== location.hostname.replace(/^www\./, "")) ref = h; } catch {}
+    const device = matchMedia("(pointer: coarse)").matches && Math.min(screen.width, screen.height) < 820 ? "mobil" : "masaüstü";
+    fetch(cfg.url + "/rest/v1/rpc/track_visit", {
+      method: "POST", keepalive: true,
+      headers: { apikey: cfg.anonKey, Authorization: "Bearer " + cfg.anonKey, "Content-Type": "application/json" },
+      body: JSON.stringify({ p_path: location.pathname, p_referrer: ref, p_device: device }),
+    }).catch(() => {});
+  }
+  trackVisit(SUPABASE);
+})();
+</script>
 </body>
 </html>

@@ -61,6 +61,30 @@ input[type=email], input[type=password], input[type=number] { border: 1px solid 
 .actions { display: flex; flex-wrap: wrap; gap: 6px; }
 a { color: var(--accent); }
 .empty { text-align: center; color: var(--muted); padding: 28px 0; }
+.stats-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.range { display: flex; gap: 4px; }
+.range button { border: 1px solid var(--line); background: var(--panel); border-radius: 999px; padding: 2px 12px; font-size: 13px; }
+.range button[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; }
+.tile { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
+.tile .k { font-size: 12px; color: var(--muted); }
+.tile .v { font: 600 26px/1.15 var(--body); font-variant-numeric: tabular-nums; }
+.tile .live { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--ok); margin-right: 6px; vertical-align: middle; }
+.chart { position: relative; }
+.chart svg { display: block; width: 100%; height: 180px; overflow: visible; }
+.chart .bar { fill: var(--accent); }
+.chart .bar.dim { opacity: .35; }
+.chart .grid { stroke: var(--line); stroke-width: 1; }
+.chart .axis { fill: var(--muted); font-size: 11px; font-family: var(--body); }
+.chart .hit { fill: transparent; }
+.tip { position: absolute; pointer-events: none; background: var(--ink); color: var(--bg); font-size: 12px; padding: 6px 8px; border-radius: 6px; white-space: nowrap; transform: translate(-50%, -100%); }
+.lists { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; }
+.lists h3 { font-size: 13px; color: var(--muted); font-weight: 600; margin: 0 0 6px; }
+.rowbar { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 8px; font-size: 14px; margin-bottom: 6px; }
+.rowbar .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rowbar .n { font-variant-numeric: tabular-nums; color: var(--muted); }
+.rowbar .track { grid-column: 1 / -1; height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; }
+.rowbar .fill { height: 100%; border-radius: 3px; background: var(--accent); }
 #toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); background: var(--ink); color: var(--bg); padding: 8px 14px; border-radius: 8px; font-size: 14px; }
 </style>
 </head>
@@ -80,6 +104,25 @@ a { color: var(--accent); }
   </form>
 
   <section id="panel" hidden>
+    <div class="card" style="display:grid;gap:14px;margin-bottom:16px" id="stats">
+      <div class="stats-head">
+        <strong>Ziyaretçiler</strong>
+        <div class="range" role="group" aria-label="Zaman aralığı">
+          <button data-days="7" aria-pressed="false">7 gün</button><button data-days="30" aria-pressed="true">30 gün</button><button data-days="90" aria-pressed="false">90 gün</button>
+        </div>
+      </div>
+      <div class="tiles" id="tiles"></div>
+      <div>
+        <div class="muted" id="chartTitle">Günlük ziyaretçi</div>
+        <div class="chart" id="chart"></div>
+      </div>
+      <div class="lists">
+        <div><h3>Nereden geldiler</h3><div id="refs"></div></div>
+        <div><h3>En çok açılan sayfalar</h3><div id="pages"></div></div>
+        <div><h3>Cihaz</h3><div id="devices"></div></div>
+      </div>
+      <p class="muted" style="margin:0">Çerezsiz sayılır: aynı kişi aynı gün içinde bir kez sayılır, günler arasında takip edilmez.</p>
+    </div>
     <div class="card" style="display:grid;gap:12px;margin-bottom:16px">
       <strong>Ayarlar</strong>
       <div class="settings">
@@ -144,7 +187,7 @@ a { color: var(--accent); }
     const body = res.status === 204 ? null : await res.json().catch(() => null);
     if (!res.ok) {
       if (body && body.code === "P0001") throw new Error(body.message);
-      if (body && body.code === "PGRST202") throw new Error("Moderasyon kurulumu eksik: schema.sql'i yeniden çalıştır.");
+      if (body && body.code === "PGRST202") throw new Error("Veritabanı kurulumu eksik: schema.sql'i yeniden çalıştır.");
       throw new Error(`Sunucu isteği reddetti. [${res.status} ${(body && body.code) || ""} ${(body && body.message) || ""}]`);
     }
     return body;
@@ -157,7 +200,7 @@ a { color: var(--accent); }
     try { ok = await rpc("admin_check"); } catch (e) { showLogin(e.message); return; }
     if (!ok) { session = null; save(); showLogin("Bu hesap yönetici değil. E-postanı admins tablosuna ekle."); return; }
     $("login").hidden = true; $("panel").hidden = false; $("logout").hidden = false;
-    loadSettings(); load();
+    loadSettings(); load(); loadStats();
   }
 
   $("login").addEventListener("submit", async (e) => {
@@ -185,6 +228,87 @@ a { color: var(--accent); }
   $("sApproval").onchange = (e) => setSetting("require_approval", e.target.checked);
   $("sHide").onchange = (e) => setSetting("hide_after_reports", e.target.value);
   $("sRate").onchange = (e) => setSetting("max_posts_per_hour", e.target.value);
+
+  // ---- visitor stats ----
+  let statDays = 30, statTimer = null, lastDays = null, rsT;
+  window.addEventListener("resize", () => { clearTimeout(rsT); rsT = setTimeout(() => { if (lastDays && !$("panel").hidden) chart(lastDays); }, 150); });
+  const nf = new Intl.NumberFormat("tr-TR");
+  const shortDate = (s) => { const [, m, d] = s.split("-").map(Number); return `${d} ${MONTHS[m - 1].slice(0, 3)}`; };
+  document.querySelectorAll(".range button").forEach((b) => b.onclick = () => {
+    statDays = +b.dataset.days;
+    document.querySelectorAll(".range button").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+    loadStats();
+  });
+  function tile(k, v, live) {
+    const d = document.createElement("div"); d.className = "tile";
+    d.innerHTML = `<div class="k"></div><div class="v"></div>`;
+    d.querySelector(".k").textContent = k;
+    if (live) { const dot = document.createElement("span"); dot.className = "live"; d.querySelector(".k").prepend(dot); }
+    d.querySelector(".v").textContent = nf.format(v);
+    return d;
+  }
+  function rowbars(box, rows, key, empty) {
+    box.innerHTML = "";
+    if (!rows.length) { box.innerHTML = `<p class="muted" style="margin:0">${empty}</p>`; return; }
+    const max = Math.max(...rows.map((r) => r[key]));
+    for (const r of rows) {
+      const el = document.createElement("div"); el.className = "rowbar";
+      el.innerHTML = `<span class="name"></span><span class="n"></span><div class="track"><div class="fill"></div></div>`;
+      el.querySelector(".name").textContent = r.name; el.querySelector(".name").title = r.name;
+      el.querySelector(".n").textContent = nf.format(r[key]);
+      el.querySelector(".fill").style.width = Math.max(2, r[key] / max * 100) + "%";
+      box.appendChild(el);
+    }
+  }
+  function chart(days) {
+    const box = $("chart"); box.innerHTML = ""; lastDays = days;
+    const Wd = Math.max(260, box.clientWidth || 600), Ht = 180, padL = 30, padB = 22, padT = 8, n = days.length;
+    const max = Math.max(1, ...days.map((d) => d.visitors));
+    const step = Math.pow(10, Math.floor(Math.log10(max))); const top = Math.ceil(max / step) * step;
+    const x = (i) => padL + (Wd - padL) * i / n, bw = Math.max(2, (Wd - padL) / n - 2);
+    const y = (v) => padT + (Ht - padT - padB) * (1 - v / top);
+    const NS = "http://www.w3.org/2000/svg";
+    const svg = document.createElementNS(NS, "svg"); svg.setAttribute("viewBox", `0 0 ${Wd} ${Ht}`);
+    svg.setAttribute("role", "img"); svg.setAttribute("aria-label", `Son ${n} günde günlük ziyaretçi sayısı`);
+    const add = (tag, attrs, text) => { const e = document.createElementNS(NS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); if (text != null) e.textContent = text; svg.appendChild(e); return e; };
+    for (const v of [0, top / 2, top]) { add("line", { class: "grid", x1: padL, x2: Wd, y1: y(v), y2: y(v) }); add("text", { class: "axis", x: padL - 6, y: y(v) + 4, "text-anchor": "end" }, nf.format(v)); }
+    const every = Math.ceil(n / Math.max(2, Math.floor(Wd / 90)));
+    days.forEach((d, i) => {
+      const h = Math.max(0, y(0) - y(d.visitors));
+      if (d.visitors > 0) add("path", { class: "bar", d: `M${x(i) + 1},${y(0)} v${-(h - Math.min(4, h))} q0,${-Math.min(4, h)} ${Math.min(4, bw / 2)},${-Math.min(4, h)} h${bw - 2 * Math.min(4, bw / 2)} q${Math.min(4, bw / 2)},0 ${Math.min(4, bw / 2)},${Math.min(4, h)} v${h - Math.min(4, h)} z` });
+      if ((i % every === 0 && n - 1 - i >= every * 0.7) || i === n - 1) add("text", { class: "axis", x: i === n - 1 ? Wd : x(i) + 1 + bw / 2, y: Ht - 6, "text-anchor": i === n - 1 ? "end" : "middle" }, shortDate(d.day));
+      const hit = add("rect", { class: "hit", x: x(i), y: padT, width: (Wd - padL) / n, height: Ht - padT - padB });
+      hit.addEventListener("pointerenter", () => showTip(i));
+    });
+    svg.addEventListener("pointerleave", () => { tip.hidden = true; });
+    box.appendChild(svg);
+    const tip = document.createElement("div"); tip.className = "tip"; tip.hidden = true; box.appendChild(tip);
+    function showTip(i) {
+      const d = days[i];
+      tip.innerHTML = ""; const b = document.createElement("b"); b.textContent = fmtDate(d.day); tip.append(b, document.createElement("br"),
+        `${nf.format(d.visitors)} ziyaretçi · ${nf.format(d.views)} görüntülenme`, document.createElement("br"), `${nf.format(d.memories)} yeni anı`);
+      tip.hidden = false;
+      const half = tip.offsetWidth / 2, cx = x(i) + 1 + bw / 2;
+      tip.style.left = Math.min(Wd - half, Math.max(half, cx)) + "px"; tip.style.top = (y(d.visitors) - 6) + "px";
+    }
+  }
+  async function loadStats() {
+    clearTimeout(statTimer);
+    let s;
+    try { s = await rpc("admin_stats", { p_days: statDays }); }
+    catch (e) { $("tiles").innerHTML = ""; const p = document.createElement("p"); p.className = "muted"; p.textContent = e.message; $("tiles").appendChild(p); return; }
+    const days = s.days || [], today = days[days.length - 1] || { visitors: 0 };
+    const sum = (k, from) => days.slice(from).reduce((a, d) => a + d[k], 0);
+    const tiles = $("tiles"); tiles.innerHTML = "";
+    tiles.append(tile("Şu an sitede", s.now, true), tile("Bugün ziyaretçi", today.visitors), tile(`${statDays} günde ziyaretçi`, sum("visitors", 0)),
+      tile(`${statDays} günde görüntülenme`, sum("views", 0)), tile(`${statDays} günde yeni anı`, sum("memories", 0)), tile("Yayındaki anı", s.memories_total));
+    $("chartTitle").textContent = `Günlük ziyaretçi, son ${statDays} gün`;
+    chart(days);
+    rowbars($("refs"), s.referrers, "visitors", "Henüz başka siteden gelen yok.");
+    rowbars($("pages"), s.pages.map((p) => ({ ...p, name: p.name === "/" ? "Ana sayfa" : p.name.replace(/^\//, "") })), "views", "Henüz veri yok.");
+    const dv = s.devices || {}; rowbars($("devices"), Object.keys(dv).map((k) => ({ name: k[0].toUpperCase() + k.slice(1), n: dv[k] })).sort((a, b) => b.n - a.n), "n", "Henüz veri yok.");
+    statTimer = setTimeout(() => { if (!$("panel").hidden) loadStats(); }, 60000);
+  }
 
   // ---- list ----
   let view = "review";

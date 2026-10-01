@@ -158,7 +158,7 @@ begin
 
   perform _verify_captcha(p_captcha);
 
-  if p_date is null or p_date > current_date or p_date < date '1940-01-01' then
+  if p_date is null or p_date > (now() at time zone 'Europe/Istanbul')::date or p_date < date '1940-01-01' then
     raise exception 'Tarih 1940 ile bugün arasında olmalı.' using errcode = 'P0001';
   end if;
   -- Türkiye ve KKTC'yi kapsayan geniş kutu; ayrıntılı sınır kontrolü sitede yapılıyor.
@@ -333,3 +333,103 @@ revoke all on function public.admin_check(), public.admin_memories(text), public
 grant execute on function public.admin_check(), public.admin_memories(text), public.admin_photo(uuid),
   public.admin_set_status(uuid, text), public.admin_delete(uuid), public.admin_settings(),
   public.admin_set_setting(text, text) to authenticated;
+
+-- ---------- Ziyaretçi istatistiği (çerezsiz) ----------
+-- Her sayfa açılışı bir satır. Ziyaretçiyi ayırt etmek için IP + tarayıcı bilgisinin o güne ait
+-- rastgele bir tuzla özeti tutulur. Tuz ertesi gün silinir; böylece aynı kişi günler arasında
+-- izlenemez ve özet geri çevrilemez. Çerez ya da tarayıcıda saklanan bir kimlik yoktur.
+
+create table if not exists public.visits (
+  created_at  timestamptz not null default now(),
+  day         date not null default (now() at time zone 'Europe/Istanbul')::date,
+  path        text not null,
+  referrer    text,
+  device      text,
+  vhash       text not null
+);
+create index if not exists visits_day_idx on public.visits (day);
+create index if not exists visits_recent_idx on public.visits (vhash, path, created_at);
+
+-- Günler Türkiye saatine göre.
+create or replace function public._tr_today() returns date
+language sql stable as $$ select (now() at time zone 'Europe/Istanbul')::date $$;
+
+create table if not exists public.daily_salt (
+  day   date primary key,
+  salt  text not null
+);
+
+alter table public.visits     enable row level security;
+alter table public.daily_salt enable row level security;
+revoke all on public.visits, public.daily_salt from anon, authenticated;
+
+create or replace function public.track_visit(p_path text, p_referrer text default null, p_device text default null)
+returns void
+language plpgsql volatile security definer set search_path = public as $$
+declare
+  headers json := nullif(current_setting('request.headers', true), '')::json;
+  v_ip text;
+  v_ua text;
+  v_salt text;
+  v_hash text;
+  v_path text := left(coalesce(nullif(btrim(p_path), ''), '/'), 80);
+  v_ref text := nullif(left(lower(btrim(coalesce(p_referrer, ''))), 80), '');
+  v_dev text := case when p_device in ('mobil', 'masaüstü') then p_device else null end;
+begin
+  delete from daily_salt where day < _tr_today();
+  insert into daily_salt (day, salt) values (_tr_today(), md5(random()::text || clock_timestamp()::text))
+    on conflict (day) do nothing;
+  select salt into v_salt from daily_salt where day = _tr_today();
+
+  v_ip := coalesce(headers ->> 'cf-connecting-ip', split_part(coalesce(headers ->> 'x-forwarded-for', ''), ',', 1), 'unknown');
+  v_ua := left(coalesce(headers ->> 'user-agent', ''), 300);
+  v_hash := left(encode(sha256(convert_to(v_salt || trim(v_ip) || v_ua, 'utf8')), 'hex'), 20);
+
+  -- Aynı kişi aynı sayfayı 30 dakika içinde yenilerse tekrar sayılmaz (ve sayaç şişirilemez).
+  if exists (select 1 from visits where vhash = v_hash and path = v_path and created_at > now() - interval '30 minutes') then
+    return;
+  end if;
+  if (select count(*) from visits where vhash = v_hash and created_at > now() - interval '1 hour') >= 60 then
+    return;
+  end if;
+
+  insert into visits (path, referrer, device, vhash) values (v_path, v_ref, v_dev, v_hash);
+end $$;
+
+-- Yönetici paneli için özet: son p_days gün.
+create or replace function public.admin_stats(p_days integer default 30) returns json
+language plpgsql stable security definer set search_path = public as $$
+declare
+  v_days integer := least(greatest(coalesce(p_days, 30), 1), 365);
+  v_from date;
+begin
+  perform _require_admin();
+  v_from := _tr_today() - (v_days - 1);
+  return json_build_object(
+    'days', (
+      select json_agg(json_build_object('day', d.day, 'visitors', coalesce(v.visitors, 0), 'views', coalesce(v.views, 0), 'memories', coalesce(m.memories, 0)) order by d.day)
+        from (select g::date as day from generate_series(v_from, _tr_today(), interval '1 day') g) as d
+        left join (select day, count(distinct vhash) as visitors, count(*) as views from visits where day >= v_from group by day) v on v.day = d.day
+        left join (select (created_at at time zone 'Europe/Istanbul')::date as day, count(*) as memories from memories where created_at >= v_from - 1 group by 1) m on m.day = d.day
+    ),
+    'now', (select count(distinct vhash) from visits where created_at > now() - interval '5 minutes'),
+    'referrers', (
+      select coalesce(json_agg(json_build_object('name', referrer, 'visitors', n) order by n desc), '[]')
+        from (select referrer, count(distinct (day, vhash)) as n from visits where day >= v_from and referrer is not null group by referrer order by n desc limit 8) r
+    ),
+    'pages', (
+      select coalesce(json_agg(json_build_object('name', path, 'views', n) order by n desc), '[]')
+        from (select path, count(*) as n from visits where day >= v_from group by path order by n desc limit 8) p
+    ),
+    'devices', (
+      select coalesce(json_object_agg(coalesce(device, 'bilinmiyor'), n), '{}')
+        from (select device, count(distinct (day, vhash)) as n from visits where day >= v_from group by device) d
+    ),
+    'memories_total', (select count(*) from memories where status = 'published')
+  );
+end $$;
+
+revoke all on function public.track_visit(text, text, text) from public;
+grant execute on function public.track_visit(text, text, text) to anon, authenticated;
+revoke all on function public.admin_stats(integer) from public, anon;
+grant execute on function public.admin_stats(integer) to authenticated;
