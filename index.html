@@ -585,7 +585,12 @@ const PROVINCES=[["Adana","M760.0,565.9L760.2,566.1L760.3,566.3L759.9,566.0L760.
       try { res = await fetch(base + path, { ...opts, headers: { ...H, ...(opts && opts.headers) } }); }
       catch { throw new Error("Sunucuya ulaşılamadı. Bağlantını kontrol edip tekrar dene."); }
       const body = res.status === 204 ? null : await res.json().catch(() => null);
-      if (!res.ok) throw new Error((body && body.code === "P0001" && body.message) || "Sunucu isteği reddetti, tekrar dene.");
+      if (!res.ok) {
+        if (body && body.code === "P0001" && body.message) throw new Error(body.message);
+        const why = body && body.code === "PGRST202" ? "Veritabanı kurulumu eksik (schema.sql çalıştırılmamış olabilir)."
+          : res.status === 401 ? "Supabase anahtarı geçersiz." : "Sunucu isteği reddetti.";
+        throw new Error(`${why} [${res.status} ${(body && (body.code || "")) || ""} ${(body && body.message) || ""}]`.trim());
+      }
       return body;
     }
     const map = (r) => ({ id: r.id, date: r.date, lat: r.lat, lng: r.lng, city: r.city, place: r.place, text: r.text, mood: r.mood, hasPhoto: !!r.has_photo, createdAt: Date.parse(r.created_at) });
