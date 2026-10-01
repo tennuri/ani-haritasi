@@ -190,3 +190,108 @@ revoke all on function public.submit_memory(date, double precision, double preci
 revoke all on function public.report_memory(uuid) from public;
 grant execute on function public.submit_memory(date, double precision, double precision, text, text, text, text, text) to anon, authenticated;
 grant execute on function public.report_memory(uuid) to anon, authenticated;
+
+-- ---------- Moderasyon ----------
+-- Yönetici, Supabase Authentication'da e-posta + şifre ile açılmış bir kullanıcıdır.
+-- Yetki için e-postası bu tabloda olmalı. Kurulumdan sonra bir kez çalıştır:
+--   insert into public.admins (email) values ('senin@epostan.com');
+
+create table if not exists public.admins (
+  email text primary key check (email = lower(email))
+);
+alter table public.admins enable row level security;
+revoke all on public.admins from anon, authenticated;
+
+create or replace function public._is_admin() returns boolean
+language sql stable security definer set search_path = public as $$
+  select coalesce(auth.jwt() ->> 'role', '') = 'authenticated'
+     and exists (select 1 from admins where email = lower(coalesce(auth.jwt() ->> 'email', '')))
+$$;
+
+create or replace function public._require_admin() returns void
+language plpgsql stable security definer set search_path = public as $$
+begin
+  if not _is_admin() then
+    raise exception 'Bu işlem için yönetici girişi gerekli.' using errcode = 'P0001';
+  end if;
+end $$;
+
+create or replace function public.admin_check() returns boolean
+language sql stable security definer set search_path = public as $$
+  select _is_admin()
+$$;
+
+-- p_view: 'review' (onay bekleyen, şikâyet alan ya da gizlenen), 'published', 'hidden', 'pending', 'all'
+create or replace function public.admin_memories(p_view text default 'review')
+returns table (id uuid, date date, lat double precision, lng double precision, city text, place text,
+               text text, mood text, has_photo boolean, status text, reports integer, created_at timestamptz)
+language plpgsql stable security definer set search_path = public as $$
+begin
+  perform _require_admin();
+  return query
+    select m.id, m.date, m.lat, m.lng, m.city, m.place, m.text, m.mood, m.has_photo, m.status, m.reports, m.created_at
+      from memories m
+     where case p_view
+             when 'review' then m.status <> 'published' or m.reports > 0
+             when 'all' then true
+             else m.status = p_view
+           end
+     order by (m.status = 'pending') desc, m.reports desc, m.created_at desc
+     limit 500;
+end $$;
+
+create or replace function public.admin_photo(p_id uuid) returns text
+language plpgsql stable security definer set search_path = public as $$
+begin
+  perform _require_admin();
+  return (select data from memory_photos where id = p_id);
+end $$;
+
+-- Yayınlamak şikâyet sayacını sıfırlar; böylece tek yeni şikâyetle yeniden gizlenmez.
+create or replace function public.admin_set_status(p_id uuid, p_status text) returns void
+language plpgsql volatile security definer set search_path = public as $$
+begin
+  perform _require_admin();
+  if p_status not in ('pending', 'published', 'hidden') then
+    raise exception 'Geçersiz durum.' using errcode = 'P0001';
+  end if;
+  update memories
+     set status = p_status,
+         reports = case when p_status = 'published' then 0 else reports end
+   where id = p_id;
+end $$;
+
+create or replace function public.admin_delete(p_id uuid) returns void
+language plpgsql volatile security definer set search_path = public as $$
+begin
+  perform _require_admin();
+  delete from memories where id = p_id;
+end $$;
+
+create or replace function public.admin_settings() returns json
+language plpgsql stable security definer set search_path = public as $$
+begin
+  perform _require_admin();
+  return (select json_object_agg(key, value) from settings where key <> 'ip_salt');
+end $$;
+
+create or replace function public.admin_set_setting(p_key text, p_value text) returns void
+language plpgsql volatile security definer set search_path = public as $$
+begin
+  perform _require_admin();
+  if p_key = 'require_approval' and p_value in ('true', 'false')
+     or p_key = 'hide_after_reports' and p_value ~ '^\d{1,3}$' and p_value::int >= 1
+     or p_key = 'max_posts_per_hour' and p_value ~ '^\d{1,3}$' and p_value::int >= 1 then
+    update settings set value = p_value where key = p_key;
+  else
+    raise exception 'Geçersiz ayar.' using errcode = 'P0001';
+  end if;
+end $$;
+
+revoke all on function public._is_admin(), public._require_admin() from public, anon, authenticated;
+revoke all on function public.admin_check(), public.admin_memories(text), public.admin_photo(uuid),
+  public.admin_set_status(uuid, text), public.admin_delete(uuid), public.admin_settings(),
+  public.admin_set_setting(text, text) from public, anon;
+grant execute on function public.admin_check(), public.admin_memories(text), public.admin_photo(uuid),
+  public.admin_set_status(uuid, text), public.admin_delete(uuid), public.admin_settings(),
+  public.admin_set_setting(text, text) to authenticated;

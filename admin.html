@@ -1,0 +1,253 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>Anı Haritası · Moderasyon</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif&family=Figtree:wght@400;500;600;700&display=swap">
+<style>
+:root {
+  --bg: #e9eff1; --panel: #ffffff; --ink: #1b2830; --muted: #56666e; --line: #d6e0e4;
+  --accent: #b3203a; --accent-soft: #f6dde2; --ok: #1f7a4d; --ok-soft: #dcefe4; --warn: #8a5a00; --warn-soft: #f6ead0;
+  --display: "Instrument Serif", Georgia, serif; --body: "Figtree", system-ui, sans-serif; --radius: 10px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0e171d; --panel: #15222a; --ink: #e4ecef; --muted: #93a6ae; --line: #26363f;
+    --accent: #ff5d74; --accent-soft: #3d1d26; --ok: #5fd39a; --ok-soft: #173326; --warn: #f0c060; --warn-soft: #3a2f14; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0e171d; --panel: #15222a; --ink: #e4ecef; --muted: #93a6ae; --line: #26363f;
+  --accent: #ff5d74; --accent-soft: #3d1d26; --ok: #5fd39a; --ok-soft: #173326; --warn: #f0c060; --warn-soft: #3a2f14; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 var(--body); }
+button, input, select { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.wrap { max-width: 960px; margin: 0 auto; padding: 20px 16px 48px; display: grid; gap: 16px; }
+header { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px 16px; }
+h1 { font: 400 clamp(30px, 5vw, 42px)/1 var(--display); margin: 0; }
+h1 em { color: var(--accent); }
+.muted { color: var(--muted); font-size: 13px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; }
+.btn { border: 1px solid var(--line); background: var(--panel); border-radius: 8px; padding: 6px 12px; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn.ok { color: var(--ok); border-color: var(--ok); }
+.btn.danger { color: var(--accent); border-color: var(--accent); }
+.btn:disabled { opacity: .5; cursor: default; }
+label { display: grid; gap: 4px; font-size: 13px; color: var(--muted); }
+input[type=email], input[type=password], input[type=number] { border: 1px solid var(--line); background: var(--bg); border-radius: 8px; padding: 8px 10px; width: 100%; }
+#login { max-width: 360px; display: grid; gap: 12px; }
+.err { color: var(--accent); font-size: 14px; min-height: 1.5em; margin: 0; }
+.tabs { display: flex; flex-wrap: wrap; gap: 6px; }
+.tabs button { border: 1px solid var(--line); background: var(--panel); border-radius: 999px; padding: 4px 14px; }
+.tabs button[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.settings { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; align-items: end; }
+.switch { display: flex; align-items: center; gap: 8px; color: var(--ink); font-size: 15px; }
+.list { display: grid; gap: 10px; }
+.mem { display: grid; gap: 8px; }
+.mem .meta { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; font-size: 13px; color: var(--muted); }
+.mem p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.mem img { max-width: min(100%, 360px); border-radius: 8px; display: block; }
+.badge { font-size: 12px; font-weight: 600; padding: 1px 8px; border-radius: 999px; }
+.badge.published { background: var(--ok-soft); color: var(--ok); }
+.badge.pending { background: var(--warn-soft); color: var(--warn); }
+.badge.hidden { background: var(--accent-soft); color: var(--accent); }
+.badge.rep { background: var(--accent-soft); color: var(--accent); }
+.actions { display: flex; flex-wrap: wrap; gap: 6px; }
+a { color: var(--accent); }
+.empty { text-align: center; color: var(--muted); padding: 28px 0; }
+#toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); background: var(--ink); color: var(--bg); padding: 8px 14px; border-radius: 8px; font-size: 14px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Anı Haritası <em>moderasyon</em></h1>
+    <div class="actions"><a href="./">Haritaya dön</a><button class="btn" id="logout" hidden>Çıkış</button></div>
+  </header>
+
+  <form id="login" class="card" hidden>
+    <p class="muted" style="margin:0">Supabase'de açtığın yönetici e-postası ve şifresiyle gir.</p>
+    <label>E-posta <input type="email" id="email" autocomplete="username" required></label>
+    <label>Şifre <input type="password" id="password" autocomplete="current-password" required></label>
+    <p class="err" id="loginErr"></p>
+    <button class="btn primary" id="loginBtn">Giriş yap</button>
+  </form>
+
+  <section id="panel" hidden>
+    <div class="card" style="display:grid;gap:12px;margin-bottom:16px">
+      <strong>Ayarlar</strong>
+      <div class="settings">
+        <label class="switch"><input type="checkbox" id="sApproval"> Yeni anılar onayımdan sonra yayınlansın</label>
+        <label>Kaç şikâyette otomatik gizlensin <input type="number" id="sHide" min="1" max="999"></label>
+        <label>Bir kişi saatte en fazla kaç anı bırakabilir <input type="number" id="sRate" min="1" max="999"></label>
+      </div>
+    </div>
+    <div class="tabs" role="group" aria-label="Görünüm">
+      <button data-view="review" aria-pressed="true">İncelenecek</button>
+      <button data-view="pending" aria-pressed="false">Onay bekleyen</button>
+      <button data-view="hidden" aria-pressed="false">Gizlenen</button>
+      <button data-view="published" aria-pressed="false">Yayında</button>
+      <button data-view="all" aria-pressed="false">Tümü</button>
+    </div>
+    <p class="muted" id="count"></p>
+    <div class="list" id="list"></div>
+  </section>
+  <p class="err" id="fatal"></p>
+</div>
+<div id="toast" hidden></div>
+
+<script>
+(() => {
+  // index.html'deki ile aynı değerler. anon anahtarı herkese açık olabilir.
+  const SUPABASE = { url: "https://iitctgsawviphtskvizt.supabase.co", anonKey: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlpdGN0Z3Nhd3ZpcGh0c2t2aXp0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA4NDg5NzAsImV4cCI6MjEwNjQyNDk3MH0.TfHpysUG8TSx1H12fFw-hUD33jCubzon0grMw-UIg7c" };
+  const $ = (id) => document.getElementById(id);
+  const SKEY = "ani-haritasi-admin";
+  const MONTHS = ["Ocak","Şubat","Mart","Nisan","Mayıs","Haziran","Temmuz","Ağustos","Eylül","Ekim","Kasım","Aralık"];
+  const fmtDate = (s) => { const [y, m, d] = s.split("-").map(Number); return `${d} ${MONTHS[m - 1]} ${y}`; };
+  const STATUS = { published: "Yayında", pending: "Onay bekliyor", hidden: "Gizli" };
+
+  let session = null;
+  try { session = JSON.parse(sessionStorage.getItem(SKEY) || "null"); } catch {}
+  const save = () => { try { session ? sessionStorage.setItem(SKEY, JSON.stringify(session)) : sessionStorage.removeItem(SKEY); } catch {} };
+
+  let toastT;
+  function toast(t) { const el = $("toast"); el.textContent = t; el.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => el.hidden = true, 2400); }
+
+  async function auth(grant, body) {
+    const res = await fetch(`${SUPABASE.url}/auth/v1/token?grant_type=${grant}`, {
+      method: "POST", headers: { apikey: SUPABASE.anonKey, "Content-Type": "application/json" }, body: JSON.stringify(body),
+    });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(res.status === 400 ? "E-posta ya da şifre yanlış." : (j.msg || j.error_description || "Giriş yapılamadı."));
+    return { access: j.access_token, refresh: j.refresh_token, exp: Date.now() + (j.expires_in || 3600) * 1000 };
+  }
+
+  async function rpc(name, args) {
+    if (session && Date.now() > session.exp - 60000) {
+      try { session = await auth("refresh_token", { refresh_token: session.refresh }); save(); }
+      catch { session = null; save(); showLogin(); throw new Error("Oturum süresi doldu, yeniden gir."); }
+    }
+    let res;
+    try {
+      res = await fetch(`${SUPABASE.url}/rest/v1/rpc/${name}`, {
+        method: "POST",
+        headers: { apikey: SUPABASE.anonKey, Authorization: "Bearer " + (session ? session.access : SUPABASE.anonKey), "Content-Type": "application/json" },
+        body: JSON.stringify(args || {}),
+      });
+    } catch { throw new Error("Sunucuya ulaşılamadı."); }
+    const body = res.status === 204 ? null : await res.json().catch(() => null);
+    if (!res.ok) {
+      if (body && body.code === "P0001") throw new Error(body.message);
+      if (body && body.code === "PGRST202") throw new Error("Moderasyon kurulumu eksik: schema.sql'i yeniden çalıştır.");
+      throw new Error(`Sunucu isteği reddetti. [${res.status} ${(body && body.code) || ""} ${(body && body.message) || ""}]`);
+    }
+    return body;
+  }
+
+  function showLogin(msg) { $("login").hidden = false; $("panel").hidden = true; $("logout").hidden = true; $("loginErr").textContent = msg || ""; }
+
+  async function enter() {
+    let ok = false;
+    try { ok = await rpc("admin_check"); } catch (e) { showLogin(e.message); return; }
+    if (!ok) { session = null; save(); showLogin("Bu hesap yönetici değil. E-postanı admins tablosuna ekle."); return; }
+    $("login").hidden = true; $("panel").hidden = false; $("logout").hidden = false;
+    loadSettings(); load();
+  }
+
+  $("login").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const btn = $("loginBtn"); btn.disabled = true; $("loginErr").textContent = "";
+    try { session = await auth("password", { email: $("email").value.trim(), password: $("password").value }); save(); await enter(); }
+    catch (ex) { $("loginErr").textContent = ex.message; }
+    finally { btn.disabled = false; }
+  });
+
+  $("logout").onclick = () => {
+    if (session) fetch(`${SUPABASE.url}/auth/v1/logout`, { method: "POST", headers: { apikey: SUPABASE.anonKey, Authorization: "Bearer " + session.access } }).catch(() => {});
+    session = null; save(); showLogin();
+  };
+
+  // ---- settings ----
+  async function loadSettings() {
+    try {
+      const s = await rpc("admin_settings");
+      $("sApproval").checked = s.require_approval === "true";
+      $("sHide").value = s.hide_after_reports; $("sRate").value = s.max_posts_per_hour;
+    } catch (e) { toast(e.message); }
+  }
+  const setSetting = (k, v) => rpc("admin_set_setting", { p_key: k, p_value: String(v) }).then(() => toast("Ayar kaydedildi")).catch((e) => { toast(e.message); loadSettings(); });
+  $("sApproval").onchange = (e) => setSetting("require_approval", e.target.checked);
+  $("sHide").onchange = (e) => setSetting("hide_after_reports", e.target.value);
+  $("sRate").onchange = (e) => setSetting("max_posts_per_hour", e.target.value);
+
+  // ---- list ----
+  let view = "review";
+  document.querySelectorAll(".tabs button").forEach((b) => b.onclick = () => {
+    view = b.dataset.view;
+    document.querySelectorAll(".tabs button").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+    load();
+  });
+
+  async function load() {
+    const box = $("list"); box.innerHTML = '<p class="empty">Yükleniyor…</p>';
+    let rows;
+    try { rows = await rpc("admin_memories", { p_view: view }); } catch (e) { box.innerHTML = ""; $("count").textContent = e.message; return; }
+    $("count").textContent = rows.length ? `${rows.length} anı` : "";
+    box.innerHTML = "";
+    if (!rows.length) { box.innerHTML = '<p class="empty">Burada bekleyen anı yok.</p>'; return; }
+    for (const m of rows) box.appendChild(card(m));
+  }
+
+  function btn(label, cls, fn, confirmLabel) {
+    const b = document.createElement("button"); b.type = "button"; b.className = "btn " + (cls || ""); b.textContent = label;
+    b.onclick = async () => {
+      if (confirmLabel && !b.dataset.armed) { b.dataset.armed = "1"; b.textContent = confirmLabel; return; }
+      b.disabled = true;
+      try { await fn(); } catch (e) { toast(e.message); b.disabled = false; }
+    };
+    return b;
+  }
+
+  function card(m) {
+    const el = document.createElement("article"); el.className = "card mem";
+    const meta = document.createElement("div"); meta.className = "meta";
+    const badge = document.createElement("span"); badge.className = "badge " + m.status; badge.textContent = STATUS[m.status] || m.status;
+    meta.appendChild(badge);
+    if (m.reports > 0) { const r = document.createElement("span"); r.className = "badge rep"; r.textContent = `${m.reports} şikâyet`; meta.appendChild(r); }
+    const d = document.createElement("span"); d.textContent = fmtDate(m.date); meta.appendChild(d);
+    const where = document.createElement("a"); where.target = "_blank"; where.rel = "noopener";
+    where.href = `https://www.openstreetmap.org/?mlat=${m.lat}&mlon=${m.lng}#map=18/${m.lat}/${m.lng}`;
+    where.textContent = (m.place ? m.place + " · " : "") + m.city; meta.appendChild(where);
+    if (m.mood) { const c = document.createElement("span"); c.textContent = m.mood; meta.appendChild(c); }
+    const t = document.createElement("span"); t.textContent = "eklendi " + new Date(m.created_at).toLocaleString("tr-TR", { dateStyle: "short", timeStyle: "short" }); meta.appendChild(t);
+    el.appendChild(meta);
+    const p = document.createElement("p"); p.textContent = m.text; el.appendChild(p);
+
+    const actions = document.createElement("div"); actions.className = "actions";
+    if (m.has_photo) {
+      actions.appendChild(btn("Fotoğrafı göster", "", async () => {
+        const src = await rpc("admin_photo", { p_id: m.id });
+        if (src && src.startsWith("data:image/")) { const img = document.createElement("img"); img.alt = "Anının fotoğrafı"; img.src = src; el.insertBefore(img, actions); }
+        else toast("Fotoğraf bulunamadı");
+      }));
+    }
+    const setStatus = (s, msg) => async () => { await rpc("admin_set_status", { p_id: m.id, p_status: s }); toast(msg); load(); };
+    if (m.status !== "published") actions.appendChild(btn("Yayınla", "ok", setStatus("published", "Anı yayında")));
+    else if (m.reports > 0) actions.appendChild(btn("Sorun yok, şikâyetleri sil", "ok", setStatus("published", "Şikâyetler temizlendi")));
+    if (m.status !== "hidden") actions.appendChild(btn("Gizle", "", setStatus("hidden", "Anı gizlendi")));
+    actions.appendChild(btn("Sil", "danger", async () => { await rpc("admin_delete", { p_id: m.id }); toast("Anı silindi"); load(); }, "Emin misin? Kalıcı sil"));
+    el.appendChild(actions);
+    return el;
+  }
+
+  if (session) enter(); else showLogin();
+})();
+</script>
+</body>
+</html>

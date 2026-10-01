@@ -17,6 +17,11 @@ Türkiye ve KKTC içinde, takvimde bir güne gidip haritada bir noktaya geçmiş
 
 Tarayıcı tablolara doğrudan yazamaz; anılar `submit_memory`, şikâyetler `report_memory` fonksiyonundan geçer (girdi kontrolü, telefon/e-posta/TC no filtresi, IP özetiyle hız sınırı). Ayarlar `settings` tablosunda: `require_approval`, `hide_after_reports`, `max_posts_per_hour`.
 
+## Moderasyon (`admin.html`)
+1. Supabase'de Authentication > Users > Add user ile kendine e-posta + şifreli kullanıcı aç ("Auto confirm" işaretli).
+2. SQL Editor'da `insert into public.admins (email) values ('senin@epostan.com');` çalıştır (küçük harfle).
+3. `/admin.html` adresinden gir. Onay bekleyen, şikâyet alan ve gizlenen anıları yayınla, gizle ya da sil; ayarları buradan değiştir.
+
 ## Gerçek yayına çıkmadan önce
 1. Ortak veri için sunucu (ör. Supabase / Firebase) ve fotoğraflar için depolama.
 2. Moderasyon: şikâyet butonu, küfür/nefret filtresi, fotoğraflarda yüz/plaka bulanıklaştırma.
