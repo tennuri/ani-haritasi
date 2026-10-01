@@ -1,6 +1,6 @@
 # Anı Haritası
 
-Türkiye içinde, takvimde bir güne gidip haritada bir noktaya geçmiş bir anıyı (yazı ve isteğe bağlı fotoğraf) **isimsiz** bırakma prototipi.
+Türkiye ve KKTC içinde, takvimde bir güne gidip haritada bir noktaya geçmiş bir anıyı (yazı ve isteğe bağlı fotoğraf) **isimsiz** bırakma prototipi.
 
 ## Nasıl çalışır
 - Tek dosya: `index.html`. Tarayıcıda açman yeterli, kurulum yok.
