@@ -586,11 +586,11 @@ const PROVINCES=[["Adana","M760.0,565.9L760.2,566.1L760.3,566.3L759.9,566.0L760.
     }
     if (SUPABASE.url && SUPABASE.anonKey) {
       store = supabaseStore(SUPABASE);
-      note("Anılar herkesle paylaşılır, kimin yazdığı saklanmaz.");
+      note("Anılar anonim olarak herkesle paylaşılır.");
     } else if (db) {
       store = sharedStore(db, user);
       store.canRemove = !!(user && user.isOwner && (await user.isOwner()));
-      note("Anılar herkesle paylaşılır, kimin yazdığı saklanmaz.");
+      note("Anılar anonim olarak herkesle paylaşılır.");
     } else {
       store = local;
       note("Anılar şimdilik yalnızca bu tarayıcıda saklanıyor.");
