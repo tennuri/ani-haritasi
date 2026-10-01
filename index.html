@@ -175,18 +175,6 @@ header.top p { margin: 0; color: var(--muted); max-width: 52ch; }
 .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 .toast { position: fixed; left: 50%; bottom: calc(20px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: var(--ink); color: var(--bg); padding: 8px 14px; border-radius: 8px; font-size: 14px; z-index: 1300; max-width: calc(100vw - 32px); text-align: center; }
-/* Music bubble */
-.music-fab { position: fixed; right: 16px; bottom: calc(16px + env(safe-area-inset-bottom, 0px)); z-index: 1200; width: 52px; height: 52px; border-radius: 50%; border: 0; background: var(--accent); color: var(--accent-ink); font-size: 22px; box-shadow: 0 6px 18px rgb(0 0 0 / .22); }
-.music-fab.playing { animation: pulse 2.4s ease-in-out infinite; }
-@keyframes pulse { 50% { box-shadow: 0 0 0 10px transparent, 0 6px 18px rgb(0 0 0 / .22); transform: scale(1.05); } }
-.music-pop { position: fixed; right: 16px; bottom: calc(80px + env(safe-area-inset-bottom, 0px)); z-index: 1200; width: min(360px, calc(100vw - 32px)); background: var(--panel); border: 1px solid var(--line); border-radius: 16px 16px 4px 16px; box-shadow: 0 12px 32px rgb(0 0 0 / .2); padding: 12px; display: grid; gap: 10px; }
-.music-pop .head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.music-pop .head b { font-family: var(--display); font-weight: 400; font-size: 22px; line-height: 1.1; }
-.music-pop .x { border: 0; background: transparent; font-size: 20px; line-height: 1; color: var(--muted); width: 32px; height: 32px; border-radius: 8px; }
-.music-pop .player { overflow: hidden; min-height: 352px; background: var(--bg); }
-.music-pop .player iframe { display: block; width: 100%; border: 0; }
-@media (max-height: 640px) { .music-pop .player, .music-pop .player iframe { min-height: 152px; height: 152px; } }
-@media (prefers-reduced-motion: reduce) { .music-fab.playing { animation: none; } }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 
 /* ---- Sonbahar teması (piksel sanat) ---- */
@@ -213,12 +201,11 @@ header.top p { margin: 0; color: var(--muted); max-width: 52ch; }
 *, *::before, *::after { border-radius: 0 !important; }
 header.top h1 { font-weight: 600; letter-spacing: 0; }
 header.top h1 em { font-style: normal; }
-.cal-head .title, .list-head h2, .composer h2, .music-pop .head b { font-weight: 600; }
-.card, .mapbox, .music-pop, .place-pop, .results { border: 2px solid var(--ink); box-shadow: 4px 4px 0 var(--shade); }
+.cal-head .title, .list-head h2, .composer h2 { font-weight: 600; }
+.card, .mapbox, .place-pop, .results { border: 2px solid var(--ink); box-shadow: 4px 4px 0 var(--shade); }
 .btn, .search input, .field input, .field textarea, .cal-head button, .cal-head select, .map-tools button, .moods button { border-width: 2px; }
-.btn.primary, .music-fab { box-shadow: 3px 3px 0 var(--ink); }
-.btn.primary:active, .music-fab:active { transform: translate(2px, 2px); box-shadow: 1px 1px 0 var(--ink); }
-.music-fab { font-family: var(--display); }
+.btn.primary { box-shadow: 3px 3px 0 var(--ink); }
+.btn.primary:active { transform: translate(2px, 2px); box-shadow: 1px 1px 0 var(--ink); }
 .day.sel { box-shadow: 2px 2px 0 var(--ink); }
 .day.has::after { width: 5px; height: 5px; }
 .mapbox .leaflet-tile-pane { filter: sepia(.35) saturate(1.15) hue-rotate(-8deg); }
@@ -238,8 +225,6 @@ header.top h1 em { font-style: normal; }
 /* Leaf pile: a strip fixed to the bottom of the screen where falling leaves land and build up. */
 #pile { position: fixed; left: 0; right: 0; bottom: 0; width: 100%; height: 54px; pointer-events: none; z-index: 1100; image-rendering: pixelated; image-rendering: crisp-edges; }
 body { padding-bottom: 54px; }
-.music-fab { bottom: calc(62px + env(safe-area-inset-bottom, 0px)); }
-.music-pop { bottom: calc(126px + env(safe-area-inset-bottom, 0px)); }
 .toast { bottom: calc(70px + env(safe-area-inset-bottom, 0px)); }
 #leaves { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 0; image-rendering: pixelated; image-rendering: crisp-edges; }
 </style>
@@ -472,32 +457,7 @@ body { padding-bottom: 54px; }
   requestAnimationFrame(tick);
 })();
 </script>
-<button type="button" class="music-fab" id="musicFab" aria-label="Müzik balonunu aç" aria-expanded="false">♪</button>
-<div class="music-pop" id="musicPop" hidden role="dialog" aria-label="Müzik">
-  <div class="head"><b>Çalma listesi</b><button type="button" class="x" id="musicClose" aria-label="Kapat">×</button></div>
-  <div class="player" id="spotifyBox"></div>
-</div>
-<script>
-// Music bubble: the Spotify playlist embed. The player loads the first time the bubble opens.
-(() => {
-  const SRC = "https://open.spotify.com/embed/playlist/5AJ6WZg3GcmzD87cFFkIbD?utm_source=generator";
-  const fab = document.getElementById("musicFab"), pop = document.getElementById("musicPop"), box = document.getElementById("spotifyBox");
-  const toggle = (open) => {
-    if (open && !box.firstChild) {
-      const f = document.createElement("iframe");
-      f.src = SRC; f.title = "Spotify çalma listesi"; f.height = "352"; f.loading = "lazy";
-      f.allow = "autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture";
-      box.appendChild(f);
-    }
-    pop.hidden = !open; fab.setAttribute("aria-expanded", String(open));
-    fab.setAttribute("aria-label", open ? "Müzik balonunu kapat" : "Müzik balonunu aç");
-  };
-  fab.onclick = () => toggle(pop.hidden);
-  document.getElementById("musicClose").onclick = () => toggle(false);
-  // Pop the bubble once per visit, a few seconds after the page opens.
-  setTimeout(() => { let seen = false; try { seen = sessionStorage.getItem("ani-music-seen") === "1"; sessionStorage.setItem("ani-music-seen", "1"); } catch {} if (!seen) toggle(true); }, 2500);
-})();
-</script>
+
 
 <script>
 const MAP_MODE = "street";
