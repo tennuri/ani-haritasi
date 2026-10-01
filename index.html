@@ -141,6 +141,12 @@ header.top p { margin: 0; color: var(--muted); max-width: 52ch; }
 .chip { font-family: var(--body); font-size: 12px; font-weight: 600; padding: 1px 8px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); }
 .mem p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .mem img { border-radius: 8px; max-height: 320px; width: 100%; object-fit: cover; background: var(--bg); }
+.mem .ph { position: relative; display: block; padding: 0; border: 0; background: none; cursor: zoom-in; }
+.mem .ph img { display: block; }
+.mem .ph .zoom { position: absolute; right: 8px; top: 8px; width: 34px; height: 34px; display: grid; place-items: center; border-radius: 8px; background: rgb(0 0 0 / .55); color: #fff; font-size: 18px; line-height: 1; pointer-events: none; }
+.lightbox { position: fixed; inset: 0; z-index: 1400; background: rgb(0 0 0 / .88); display: grid; place-items: center; padding: 16px; cursor: zoom-out; }
+.lightbox img { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 6px; box-shadow: 0 12px 40px rgb(0 0 0 / .5); }
+.lightbox .lb-close { position: absolute; top: calc(12px + env(safe-area-inset-top, 0px)); right: 12px; width: 44px; height: 44px; border-radius: 50%; border: 0; background: rgb(255 255 255 / .15); color: #fff; font-size: 24px; line-height: 1; }
 .mem .who { font-size: 12px; color: var(--muted); }
 .empty { color: var(--muted); font-size: 14px; }
 .empty b { color: var(--ink); }
@@ -344,6 +350,7 @@ body { padding-bottom: 54px; }
   </div>
 </div>
 <div class="toast" id="toast" hidden></div>
+<div class="lightbox" id="lightbox" role="dialog" aria-modal="true" aria-label="Fotoğraf" hidden><img id="lbImg" alt="Anıya eklenen fotoğraf, büyük"><button type="button" class="lb-close" id="lbClose" aria-label="Kapat">×</button></div>
 <canvas id="leaves" aria-hidden="true"></canvas>
 <canvas id="pile" aria-hidden="true"></canvas>
 <div class="signature"><a class="sig-box" href="gizlilik.html">Gizlilik</a><span class="sig-box">@meptha</span></div>
@@ -966,11 +973,15 @@ const PROVINCES=[["Adana","M760.0,565.9L760.2,566.1L760.3,566.3L759.9,566.0L760.
       el.appendChild(meta);
       const p = document.createElement("p"); p.textContent = m.text; el.appendChild(p);
       if (m.hasPhoto) {
+        const ph = document.createElement("button"); ph.type = "button"; ph.className = "ph"; ph.setAttribute("aria-label", "Fotoğrafı büyüt");
         const img = document.createElement("img"); img.alt = "Anıya eklenen fotoğraf"; img.loading = "lazy";
-        el.appendChild(img);
+        const zb = document.createElement("span"); zb.className = "zoom"; zb.textContent = "⤢"; zb.setAttribute("aria-hidden", "true");
+        ph.append(img, zb); el.appendChild(ph);
+        ph.onclick = () => { if (img.src) openLightbox(img.src, ph); };
+        img.onerror = () => ph.remove();
         const cached = photoCache.get(m.id);
         if (cached) img.src = cached;
-        else store.photo(m.id).then((src) => { if (src) { photoCache.set(m.id, src); img.src = src; } else img.remove(); }).catch(() => img.remove());
+        else store.photo(m.id).then((src) => { if (src) { photoCache.set(m.id, src); img.src = src; } else ph.remove(); }).catch(() => ph.remove());
       }
       const foot = document.createElement("div"); foot.className = "row";
       const who = document.createElement("span"); who.className = "who"; who.textContent = "İsimsiz";
@@ -1171,6 +1182,17 @@ const PROVINCES=[["Adana","M760.0,565.9L760.2,566.1L760.3,566.3L759.9,566.0L760.
         : (ex && ex.message) || "Anı kaydedilemedi, tekrar dene.";
     } finally { btn.disabled = false; btn.textContent = "Anıyı bırak"; if (needCaptcha()) resetCaptcha(); }
   });
+
+  let lbReturn = null;
+  function openLightbox(src, from) {
+    lbReturn = from; $("lbImg").src = src; $("lightbox").hidden = false; $("lbClose").focus();
+  }
+  function closeLightbox() {
+    $("lightbox").hidden = true; $("lbImg").removeAttribute("src");
+    if (lbReturn) { lbReturn.focus({ preventScroll: true }); lbReturn = null; }
+  }
+  $("lightbox").onclick = closeLightbox;
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("lightbox").hidden) closeLightbox(); });
 
   let toastT;
   function toast(t) { const el = $("toast"); el.textContent = t; el.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => el.hidden = true, 2400); }
