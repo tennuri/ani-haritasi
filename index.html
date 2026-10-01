@@ -183,6 +183,9 @@ header.top p { margin: 0; color: var(--muted); max-width: 52ch; }
 .music-pop .head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .music-pop .head b { font-family: var(--display); font-weight: 400; font-size: 22px; line-height: 1.1; }
 .music-pop .x { border: 0; background: transparent; font-size: 20px; line-height: 1; color: var(--muted); width: 32px; height: 32px; border-radius: 8px; }
+.music-pop .player { overflow: hidden; min-height: 352px; background: var(--bg); }
+.music-pop .player iframe { display: block; width: 100%; border: 0; }
+@media (max-height: 640px) { .music-pop .player, .music-pop .player iframe { min-height: 152px; height: 152px; } }
 @media (prefers-reduced-motion: reduce) { .music-fab.playing { animation: none; } }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 
@@ -471,52 +474,27 @@ body { padding-bottom: 54px; }
 </script>
 <button type="button" class="music-fab" id="musicFab" aria-label="Müzik balonunu aç" aria-expanded="false">♪</button>
 <div class="music-pop" id="musicPop" hidden role="dialog" aria-label="Müzik">
-  <div class="head"><b>Cayman</b><button type="button" class="x" id="musicClose" aria-label="Kapat">×</button></div>
-  <audio id="song" src="cayman.mp3" preload="auto" loop></audio>
-  <div class="row">
-    <button type="button" class="btn primary small" id="musicPlay">Çal</button>
-    <button type="button" class="btn small" id="musicJump">Rastgele bir an</button>
-  </div>
-  <label class="slider"><span>Süre</span><input type="range" id="musicSeek" min="0" max="100" step="1" value="0" aria-label="Şarkıda konum"><span class="count" id="musicTime">0:00</span></label>
-  <label class="slider"><span>Ses</span><input type="range" id="musicVol" min="0" max="100" step="1" value="30" aria-label="Ses seviyesi"><span class="count" id="musicVolTxt">%30</span></label>
+  <div class="head"><b>Çalma listesi</b><button type="button" class="x" id="musicClose" aria-label="Kapat">×</button></div>
+  <div class="player" id="spotifyBox"></div>
 </div>
 <script>
-// Music bubble: one song, starting at a random second; tries to play on arrival,
-// otherwise starts on the visitor's first tap, click or key press (browser autoplay rules).
+// Music bubble: the Spotify playlist embed. The player loads the first time the bubble opens.
 (() => {
-  const fab = document.getElementById("musicFab"), pop = document.getElementById("musicPop");
-  const audio = document.getElementById("song"), playBtn = document.getElementById("musicPlay"), time = document.getElementById("musicTime");
-  const fmt = (t) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, "0")}`;
+  const SRC = "https://open.spotify.com/embed/playlist/5AJ6WZg3GcmzD87cFFkIbD?utm_source=generator";
+  const fab = document.getElementById("musicFab"), pop = document.getElementById("musicPop"), box = document.getElementById("spotifyBox");
   const toggle = (open) => {
+    if (open && !box.firstChild) {
+      const f = document.createElement("iframe");
+      f.src = SRC; f.title = "Spotify çalma listesi"; f.height = "352"; f.loading = "lazy";
+      f.allow = "autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture";
+      box.appendChild(f);
+    }
     pop.hidden = !open; fab.setAttribute("aria-expanded", String(open));
     fab.setAttribute("aria-label", open ? "Müzik balonunu kapat" : "Müzik balonunu aç");
   };
-  const jump = () => { if (audio.duration) audio.currentTime = Math.random() * Math.max(0, audio.duration - 5); };
-  audio.volume = 0.3;
-  const play = () => audio.play().catch(() => {});
   fab.onclick = () => toggle(pop.hidden);
   document.getElementById("musicClose").onclick = () => toggle(false);
-  let userPaused = false;
-  playBtn.onclick = () => { if (audio.paused) { userPaused = false; play(); } else { userPaused = true; audio.pause(); } };
-  document.getElementById("musicJump").onclick = () => { jump(); play(); };
-  audio.addEventListener("play", () => { playBtn.textContent = "Duraklat"; fab.classList.add("playing"); });
-  audio.addEventListener("pause", () => { playBtn.textContent = "Çal"; fab.classList.remove("playing"); });
-  const seek = document.getElementById("musicSeek"), vol = document.getElementById("musicVol"), volTxt = document.getElementById("musicVolTxt");
-  let seeking = false;
-  const showTime = () => { time.textContent = `${fmt(audio.currentTime)} / ${fmt(audio.duration || 0)}`; };
-  audio.addEventListener("loadedmetadata", () => { seek.max = Math.floor(audio.duration); });
-  audio.addEventListener("timeupdate", () => { if (!seeking) seek.value = Math.floor(audio.currentTime); showTime(); });
-  seek.addEventListener("input", () => { seeking = true; time.textContent = `${fmt(+seek.value)} / ${fmt(audio.duration || 0)}`; });
-  seek.addEventListener("change", () => { audio.currentTime = +seek.value; seeking = false; });
-  vol.addEventListener("input", () => { audio.volume = vol.value / 100; volTxt.textContent = `%${vol.value}`; });
-  const start = () => { jump(); play(); };
-  if (audio.readyState >= 1) start(); else audio.addEventListener("loadedmetadata", start, { once: true });
-  const kick = (ev) => {
-    if (ev.target.closest && ev.target.closest("#musicPop, #musicFab")) return; // the bubble's own buttons handle themselves
-    if (audio.paused && !userPaused) play();
-    ["pointerdown", "keydown", "touchstart"].forEach((t) => document.removeEventListener(t, kick, true));
-  };
-  ["pointerdown", "keydown", "touchstart"].forEach((t) => document.addEventListener(t, kick, true));
+  // Pop the bubble once per visit, a few seconds after the page opens.
   setTimeout(() => { let seen = false; try { seen = sessionStorage.getItem("ani-music-seen") === "1"; sessionStorage.setItem("ani-music-seen", "1"); } catch {} if (!seen) toggle(true); }, 2500);
 })();
 </script>
