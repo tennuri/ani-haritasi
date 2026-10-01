@@ -9,8 +9,13 @@ Türkiye ve KKTC içinde, takvimde bir güne gidip haritada bir noktaya geçmiş
 - Anı: tarih, yer tarifi, metin (en fazla 1200 karakter), his etiketi, fotoğraf.
 - Gizlilik: isim ya da hesap kaydedilmez; fotoğraf tarayıcıda küçültülür ve içindeki GPS/cihaz bilgisi silinir.
 
-## Şu anki sınır
-Bu prototipte anılar **yalnızca ziyaretçinin kendi tarayıcısında** (localStorage) saklanır; başkaları göremez. Herkesin birbirinin anısını görmesi için bir sunucu gerekir.
+## Ortak veri (Supabase)
+`index.html` içindeki `SUPABASE` ayarı boşsa anılar yalnızca ziyaretçinin kendi tarayıcısında saklanır. Herkesin anıyı görmesi için:
+1. supabase.com'da proje aç (bölge: Frankfurt).
+2. SQL Editor'da `supabase/schema.sql` dosyasının tamamını çalıştır.
+3. Project Settings > API'deki **Project URL** ve **anon public** anahtarını `index.html` içindeki `SUPABASE` satırına yaz. `service_role` anahtarını asla koyma.
+
+Tarayıcı tablolara doğrudan yazamaz; anılar `submit_memory`, şikâyetler `report_memory` fonksiyonundan geçer (girdi kontrolü, telefon/e-posta/TC no filtresi, IP özetiyle hız sınırı). Ayarlar `settings` tablosunda: `require_approval`, `hide_after_reports`, `max_posts_per_hour`.
 
 ## Gerçek yayına çıkmadan önce
 1. Ortak veri için sunucu (ör. Supabase / Firebase) ve fotoğraflar için depolama.

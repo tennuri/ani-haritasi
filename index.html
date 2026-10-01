@@ -532,7 +532,10 @@ const PROVINCES=[["Adana","M760.0,565.9L760.2,566.1L760.3,566.3L759.9,566.0L760.
   // ---- state ----
   const S = { memories: [], selDate: TODAY, view: { y: today.getFullYear(), m: today.getMonth() }, mode: "day", selId: null, draft: null, mood: null, photo: null };
 
-  // ---- store: shared artifact db when available, else this browser ----
+  // ---- store: Supabase when configured, else shared artifact db, else this browser ----
+  // Supabase panelinde Project Settings > API: "Project URL" ve "anon public" anahtarı.
+  // anon anahtarı herkese açık olabilir; service_role anahtarını asla buraya koyma.
+  const SUPABASE = { url: "", anonKey: "" };
   const LS_KEY = "ani-haritasi-v1";
   const local = {
     kind: "local",
@@ -573,6 +576,47 @@ const PROVINCES=[["Adana","M760.0,565.9L760.2,566.1L760.3,566.3L759.9,566.0L760.
       async remove(id) { await db.doc("memories/" + id).delete(); await db.doc("photos/" + id).delete(); },
     };
   }
+  function supabaseStore(cfg) {
+    const base = cfg.url.replace(/\/+$/, "");
+    const H = { apikey: cfg.anonKey, Authorization: "Bearer " + cfg.anonKey, "Content-Type": "application/json" };
+    const COLS = "id,date,lat,lng,city,place,text,mood,has_photo,created_at";
+    async function call(path, opts) {
+      let res;
+      try { res = await fetch(base + path, { ...opts, headers: { ...H, ...(opts && opts.headers) } }); }
+      catch { throw new Error("Sunucuya ulaşılamadı. Bağlantını kontrol edip tekrar dene."); }
+      const body = res.status === 204 ? null : await res.json().catch(() => null);
+      if (!res.ok) throw new Error((body && body.code === "P0001" && body.message) || "Sunucu isteği reddetti, tekrar dene.");
+      return body;
+    }
+    const map = (r) => ({ id: r.id, date: r.date, lat: r.lat, lng: r.lng, city: r.city, place: r.place, text: r.text, mood: r.mood, hasPhoto: !!r.has_photo, createdAt: Date.parse(r.created_at) });
+    return {
+      kind: "supabase",
+      canRemove: false,
+      canReport: true,
+      async refresh() {
+        try {
+          const rows = await call(`/rest/v1/memories?select=${COLS}&order=created_at.desc&limit=2000`);
+          this.cb && this.cb(rows.map(map));
+        } catch { note("Anılara şu an ulaşılamıyor. Sayfayı yenile."); }
+      },
+      subscribe(cb) {
+        this.cb = cb; this.refresh();
+        setInterval(() => { if (!document.hidden) this.refresh(); }, 60000);
+      },
+      async add(m, photo) {
+        const id = await call("/rest/v1/rpc/submit_memory", { method: "POST", body: JSON.stringify({
+          p_date: m.date, p_lat: m.lat, p_lng: m.lng, p_city: m.city, p_place: m.place, p_text: m.text, p_mood: m.mood, p_photo: photo || null,
+        }) });
+        await this.refresh();
+        return id;
+      },
+      async photo(id) {
+        const rows = await call(`/rest/v1/memory_photos?select=data&id=eq.${encodeURIComponent(id)}`);
+        return rows && rows[0] ? rows[0].data : null;
+      },
+      async report(id) { await call("/rest/v1/rpc/report_memory", { method: "POST", body: JSON.stringify({ p_id: id }) }); },
+    };
+  }
   let store = local;
   const note = (t) => { $("storeNote").textContent = t; };
 
@@ -581,7 +625,10 @@ const PROVINCES=[["Adana","M760.0,565.9L760.2,566.1L760.3,566.3L759.9,566.0L760.
     if (window.claude && typeof window.claude.use === "function") {
       try { [db, user] = await Promise.all([window.claude.use("db"), window.claude.use("user")]); } catch { db = null; }
     }
-    if (db) {
+    if (SUPABASE.url && SUPABASE.anonKey) {
+      store = supabaseStore(SUPABASE);
+      note("Anılar herkesle paylaşılır, kimin yazdığı saklanmaz.");
+    } else if (db) {
       store = sharedStore(db, user);
       store.canRemove = !!(user && user.isOwner && (await user.isOwner()));
       note("Anılar herkesle paylaşılır, kimin yazdığı saklanmaz.");
@@ -909,6 +956,18 @@ const PROVINCES=[["Adana","M760.0,565.9L760.2,566.1L760.3,566.3L759.9,566.0L760.
         };
         foot.appendChild(rm);
       }
+      if (store.canReport) {
+        const rp = document.createElement("button"); rp.type = "button"; rp.className = "btn small"; rp.textContent = "Bildir";
+        rp.title = "Kişisel bilgi, nefret ya da taciz içeriyorsa bildir";
+        rp.onclick = () => {
+          if (rp.dataset.armed) {
+            rp.disabled = true;
+            store.report(m.id).then(() => { rp.textContent = "Bildirildi"; toast("Teşekkürler, bildirimin alındı"); })
+              .catch((ex) => { rp.disabled = false; toast((ex && ex.message) || "Bildirilemedi, tekrar dene"); });
+          } else { rp.dataset.armed = "1"; rp.textContent = "Emin misin? Bildir"; }
+        };
+        foot.appendChild(rp);
+      }
       el.appendChild(foot);
       el.onclick = (ev) => { if (ev.target.closest("button")) return; selectMemory(m.id, false); };
       box.appendChild(el);
@@ -1007,11 +1066,12 @@ const PROVINCES=[["Adana","M760.0,565.9L760.2,566.1L760.3,566.3L759.9,566.0L760.
     const m = { id, date, text: text.slice(0, 1200), lat: S.draft.lat, lng: S.draft.lng, city: S.draft.city, place: $("fPlace").value.trim().slice(0, 120) || null, mood: S.mood || null, hasPhoto: !!S.photo, createdAt: Date.now() };
     const btn = $("submitBtn"); btn.disabled = true; btn.textContent = "Bırakılıyor…";
     try {
-      await store.add(m, S.photo);
-      if (S.photo) photoCache.set(id, S.photo);
-      S.selDate = date; S.mode = "day"; S.selId = id;
+      const newId = (await store.add(m, S.photo)) || id;
+      if (S.photo) photoCache.set(newId, S.photo);
+      const shown = S.memories.some((x) => x.id === newId);
+      S.selDate = date; S.mode = "day"; S.selId = shown ? newId : null;
       const [yy, mm] = date.split("-").map(Number); S.view = { y: yy, m: mm - 1 };
-      closeComposer(); renderAll(); toast("Anın haritada");
+      closeComposer(); renderAll(); toast(shown ? "Anın haritada" : "Anın alındı, onaylanınca haritada görünecek");
     } catch (ex) {
       err.textContent = ex && ex.code === "quota_exceeded" ? "Anı alanı doldu. Yönetici eski anıları temizleyene kadar yeni anı bırakılamıyor."
         : ex && ex.code === "invalid_argument" ? "Bu sayfada anı bırakma iznin yok ya da fotoğraf çok büyük."
