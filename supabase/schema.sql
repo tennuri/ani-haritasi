@@ -52,8 +52,12 @@ insert into public.settings (key, value) values
   ('require_approval', 'false'),   -- 'true' yaparsan yeni anılar sen onaylayana kadar görünmez
   ('hide_after_reports', '3'),     -- bu kadar şikâyet alan anı otomatik gizlenir
   ('max_posts_per_hour', '5'),     -- bir IP saatte en fazla kaç anı bırakabilir
-  ('ip_salt', md5(random()::text || clock_timestamp()::text))
+  ('ip_salt', md5(random()::text || clock_timestamp()::text)),
+  ('turnstile_secret', '')         -- Cloudflare Turnstile gizli anahtarı; boşken bot kontrolü yapılmaz
 on conflict (key) do nothing;
+
+-- Turnstile doğrulaması için sunucudan Cloudflare'e istek atan eklenti.
+create extension if not exists http with schema extensions;
 
 -- ---------- Erişim kuralları (RLS) ----------
 
@@ -98,11 +102,43 @@ language sql stable security definer set search_path = public as $$
   select value from settings where key = k
 $$;
 
+-- ---------- Bot kontrolü (Cloudflare Turnstile) ----------
+
+create or replace function public._verify_captcha(p_token text) returns void
+language plpgsql volatile security definer set search_path = public, extensions as $$
+declare
+  v_secret text := coalesce(_setting('turnstile_secret'), '');
+  v_res extensions.http_response;
+  v_ok boolean;
+begin
+  if v_secret = '' then
+    return; -- anahtar girilmemişse kontrol kapalı
+  end if;
+  if p_token is null or char_length(p_token) not between 10 and 4096 then
+    raise exception 'Robot olmadığını doğrulayamadık. Kutucuğun tamamlanmasını bekleyip tekrar dene.' using errcode = 'P0001';
+  end if;
+  begin
+    v_res := extensions.http_post(
+      'https://challenges.cloudflare.com/turnstile/v0/siteverify',
+      'secret=' || extensions.urlencode(v_secret) || '&response=' || extensions.urlencode(p_token),
+      'application/x-www-form-urlencoded');
+    v_ok := v_res.status = 200 and coalesce((v_res.content::json ->> 'success')::boolean, false);
+  exception when others then
+    raise exception 'Robot kontrolüne şu an ulaşılamıyor. Biraz sonra tekrar dene.' using errcode = 'P0001';
+  end;
+  if not v_ok then
+    raise exception 'Robot olmadığını doğrulayamadık. Sayfayı yenileyip tekrar dene.' using errcode = 'P0001';
+  end if;
+end $$;
+
 -- ---------- Anı bırakma ----------
+
+-- Eski (captcha'sız) sürümü kaldır; yoksa kontrolü atlamak için kullanılabilirdi.
+drop function if exists public.submit_memory(date, double precision, double precision, text, text, text, text, text);
 
 create or replace function public.submit_memory(
   p_date date, p_lat double precision, p_lng double precision, p_city text,
-  p_place text, p_text text, p_mood text, p_photo text
+  p_place text, p_text text, p_mood text, p_photo text, p_captcha text default null
 ) returns uuid
 language plpgsql volatile security definer set search_path = public as $$
 declare
@@ -119,6 +155,8 @@ begin
      >= _setting('max_posts_per_hour')::int then
     raise exception 'Çok sık anı bıraktın. Biraz sonra tekrar dene.' using errcode = 'P0001';
   end if;
+
+  perform _verify_captcha(p_captcha);
 
   if p_date is null or p_date > current_date or p_date < date '1940-01-01' then
     raise exception 'Tarih 1940 ile bugün arasında olmalı.' using errcode = 'P0001';
@@ -185,10 +223,10 @@ begin
   insert into request_log (ip_hash, kind, target) values (v_ip, 'report', p_id);
 end $$;
 
-revoke all on function public._client_ip_hash(), public._setting(text) from public, anon, authenticated;
-revoke all on function public.submit_memory(date, double precision, double precision, text, text, text, text, text) from public;
+revoke all on function public._client_ip_hash(), public._setting(text), public._verify_captcha(text) from public, anon, authenticated;
+revoke all on function public.submit_memory(date, double precision, double precision, text, text, text, text, text, text) from public;
 revoke all on function public.report_memory(uuid) from public;
-grant execute on function public.submit_memory(date, double precision, double precision, text, text, text, text, text) to anon, authenticated;
+grant execute on function public.submit_memory(date, double precision, double precision, text, text, text, text, text, text) to anon, authenticated;
 grant execute on function public.report_memory(uuid) to anon, authenticated;
 
 -- ---------- Moderasyon ----------
@@ -272,7 +310,7 @@ create or replace function public.admin_settings() returns json
 language plpgsql stable security definer set search_path = public as $$
 begin
   perform _require_admin();
-  return (select json_object_agg(key, value) from settings where key <> 'ip_salt');
+  return (select json_object_agg(key, value) from settings where key not in ('ip_salt', 'turnstile_secret'));
 end $$;
 
 create or replace function public.admin_set_setting(p_key text, p_value text) returns void

@@ -327,6 +327,7 @@ body { padding-bottom: 54px; }
             <span class="hint">Fotoğraf küçültülür, içindeki konum ve cihaz bilgisi silinir.</span>
           </div>
           <p class="hint" id="privacyHint">İsmin ve hesabın kaydedilmez. Pin kamuya açık bir yere konursa daha güvenli olur; evinin ya da işinin önü seni tanıtabilir.</p>
+          <div id="captcha" hidden></div>
           <div class="err" id="formErr" role="alert"></div>
           <div class="row">
             <button type="submit" class="btn primary" id="submitBtn">Anıyı bırak</button>
@@ -535,6 +536,8 @@ const PROVINCES=[["Adana","M760.0,565.9L760.2,566.1L760.3,566.3L759.9,566.0L760.
   // ---- store: Supabase when configured, else shared artifact db, else this browser ----
   // Supabase panelinde Project Settings > API: "Project URL" ve "anon public" anahtarı.
   // anon anahtarı herkese açık olabilir; service_role anahtarını asla buraya koyma.
+  // Cloudflare Turnstile site anahtarı (herkese açık). Gizli anahtar yalnızca Supabase settings tablosuna girer.
+  const TURNSTILE_SITE_KEY = "";
   const SUPABASE = { url: "https://iitctgsawviphtskvizt.supabase.co", anonKey: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlpdGN0Z3Nhd3ZpcGh0c2t2aXp0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA4NDg5NzAsImV4cCI6MjEwNjQyNDk3MH0.TfHpysUG8TSx1H12fFw-hUD33jCubzon0grMw-UIg7c" };
   const LS_KEY = "ani-haritasi-v1";
   const local = {
@@ -608,9 +611,10 @@ const PROVINCES=[["Adana","M760.0,565.9L760.2,566.1L760.3,566.3L759.9,566.0L760.
         this.cb = cb; this.refresh();
         setInterval(() => { if (!document.hidden) this.refresh(); }, 60000);
       },
-      async add(m, photo) {
+      async add(m, photo, captcha) {
         const id = await call("/rest/v1/rpc/submit_memory", { method: "POST", body: JSON.stringify({
           p_date: m.date, p_lat: m.lat, p_lng: m.lng, p_city: m.city, p_place: m.place, p_text: m.text, p_mood: m.mood, p_photo: photo || null,
+          p_captcha: captcha || null,
         }) });
         await this.refresh();
         return id;
@@ -1003,8 +1007,42 @@ const PROVINCES=[["Adana","M760.0,565.9L760.2,566.1L760.3,566.3L759.9,566.0L760.
   $("fDate").max = TODAY; $("fDate").min = `${MIN_YEAR}-01-01`;
   $("fText").addEventListener("input", () => { $("textCount").textContent = `${$("fText").value.length} / 1200`; });
 
+  // ---- bot kontrolü (yalnızca ortak sunucuya yazarken) ----
+  const CAP = { id: null, token: null, loading: null };
+  const needCaptcha = () => !!TURNSTILE_SITE_KEY && store.kind === "supabase";
+  function loadTurnstile() {
+    if (window.turnstile) return Promise.resolve();
+    if (!CAP.loading) CAP.loading = new Promise((ok, fail) => {
+      const sc = document.createElement("script");
+      sc.src = "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
+      sc.async = true; sc.onload = ok; sc.onerror = () => { CAP.loading = null; fail(); };
+      document.head.appendChild(sc);
+    });
+    return CAP.loading;
+  }
+  function setupCaptcha() {
+    if (!needCaptcha()) return;
+    $("captcha").hidden = false;
+    if (CAP.id !== null) return;
+    loadTurnstile().then(() => {
+      if (CAP.id !== null) return;
+      CAP.id = window.turnstile.render("#captcha", {
+        sitekey: TURNSTILE_SITE_KEY, language: "tr", appearance: "interaction-only",
+        theme: document.documentElement.dataset.theme === "dark" ? "dark" : document.documentElement.dataset.theme === "light" ? "light" : "auto",
+        callback: (t) => { CAP.token = t; },
+        "expired-callback": () => { CAP.token = null; },
+        "error-callback": () => { CAP.token = null; },
+      });
+    }).catch(() => { $("formErr").textContent = "Robot kontrolü yüklenemedi. Reklam engelleyiciyi kapatıp sayfayı yenile."; });
+  }
+  function resetCaptcha() {
+    CAP.token = null;
+    if (CAP.id !== null && window.turnstile) window.turnstile.reset(CAP.id);
+  }
+
   function openComposer() {
     $("composeCard").hidden = false;
+    setupCaptcha();
     $("fDate").value = S.selDate;
     renderPlace();
     $("mapHint").innerHTML = "<b>Yeri değiştirmek için</b> haritada başka bir yere dokun.";
@@ -1069,9 +1107,10 @@ const PROVINCES=[["Adana","M760.0,565.9L760.2,566.1L760.3,566.3L759.9,566.0L760.
     if (text.length < 3) { err.textContent = "Birkaç kelime yaz, en az 3 karakter."; return; }
     const id = (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2)).replace(/[^a-zA-Z0-9-]/g, "");
     const m = { id, date, text: text.slice(0, 1200), lat: S.draft.lat, lng: S.draft.lng, city: S.draft.city, place: $("fPlace").value.trim().slice(0, 120) || null, mood: S.mood || null, hasPhoto: !!S.photo, createdAt: Date.now() };
+    if (needCaptcha() && !CAP.token) { err.textContent = "Robot kontrolü bitmedi. Birkaç saniye bekleyip tekrar dene."; return; }
     const btn = $("submitBtn"); btn.disabled = true; btn.textContent = "Bırakılıyor…";
     try {
-      const newId = (await store.add(m, S.photo)) || id;
+      const newId = (await store.add(m, S.photo, CAP.token)) || id;
       if (S.photo) photoCache.set(newId, S.photo);
       const shown = S.memories.some((x) => x.id === newId);
       S.selDate = date; S.mode = "day"; S.selId = shown ? newId : null;
@@ -1081,7 +1120,7 @@ const PROVINCES=[["Adana","M760.0,565.9L760.2,566.1L760.3,566.3L759.9,566.0L760.
       err.textContent = ex && ex.code === "quota_exceeded" ? "Anı alanı doldu. Yönetici eski anıları temizleyene kadar yeni anı bırakılamıyor."
         : ex && ex.code === "invalid_argument" ? "Bu sayfada anı bırakma iznin yok ya da fotoğraf çok büyük."
         : (ex && ex.message) || "Anı kaydedilemedi, tekrar dene.";
-    } finally { btn.disabled = false; btn.textContent = "Anıyı bırak"; }
+    } finally { btn.disabled = false; btn.textContent = "Anıyı bırak"; if (needCaptcha()) resetCaptcha(); }
   });
 
   let toastT;
