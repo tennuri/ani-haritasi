@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Anı Haritası · Gizlilik ve Kurallar</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Figtree:wght@400;600&display=swap">
+<style>
+:root { --bg: #e9eff1; --panel: #ffffff; --ink: #1b2830; --muted: #56666e; --line: #d6e0e4; --accent: #b3203a;
+  --display: "Instrument Serif", Georgia, serif; --body: "Figtree", system-ui, sans-serif; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --bg: #0e171d; --panel: #15222a; --ink: #e4ecef; --muted: #93a6ae; --line: #26363f; --accent: #ff5d74; color-scheme: dark; }
+}
+:root[data-theme="dark"] { --bg: #0e171d; --panel: #15222a; --ink: #e4ecef; --muted: #93a6ae; --line: #26363f; --accent: #ff5d74; color-scheme: dark; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.65 var(--body); }
+main { max-width: 720px; margin: 0 auto; padding: 28px 16px 64px; }
+h1 { font: 400 clamp(34px, 6vw, 48px)/1.05 var(--display); margin: 8px 0 4px; }
+h1 em { color: var(--accent); }
+h2 { font: 400 28px/1.2 var(--display); margin: 40px 0 8px; padding-top: 16px; border-top: 1px solid var(--line); }
+h3 { font-size: 16px; margin: 24px 0 4px; }
+p, li { max-width: 68ch; }
+ul { padding-left: 20px; }
+li { margin: 4px 0; }
+a { color: var(--accent); }
+.muted { color: var(--muted); font-size: 14px; }
+.box { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; margin: 16px 0; }
+nav { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 14px; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; margin: 8px 0; }
+th, td { text-align: left; vertical-align: top; padding: 8px 10px 8px 0; border-bottom: 1px solid var(--line); }
+th { color: var(--muted); font-weight: 600; }
+.scroll { overflow-x: auto; }
+</style>
+<script>try { const t = localStorage.getItem("ani-theme"); if (t === "dark" || t === "light") document.documentElement.dataset.theme = t; } catch {}</script>
+</head>
+<body>
+<main>
+  <a href="./">← Haritaya dön</a>
+  <h1>Gizlilik ve <em>kurallar</em></h1>
+  <p class="muted">Son güncelleme: 1 Ekim 2026</p>
+  <nav><a href="#ozet">Kısaca</a><a href="#kvkk">KVKK aydınlatma metni</a><a href="#kurallar">Kullanım koşulları</a><a href="#kaldirma">İçerik kaldırma</a></nav>
+
+  <div class="box" id="ozet">
+    <strong>Kısaca</strong>
+    <ul>
+      <li>Anı bırakmak için hesap, isim ya da e-posta gerekmez. Anının kimden geldiği saklanmaz.</li>
+      <li>Bıraktığın anı (yazı, tarih, yer, his, fotoğraf) herkese açık yayınlanır. Kendini ya da başkasını tanıtacak bilgi yazma.</li>
+      <li>Fotoğraflar tarayıcında küçültülür; içindeki konum ve cihaz bilgisi (EXIF) sunucuya gitmeden silinir.</li>
+      <li>Kötüye kullanımı önlemek için IP adresinin kendisi değil, geri çevrilemeyen bir özeti en fazla 24 saat tutulur.</li>
+      <li>Kural dışı anıları kartın altındaki <b>Bildir</b> butonuyla bildirebilirsin.</li>
+    </ul>
+  </div>
+
+  <h2 id="kvkk">KVKK aydınlatma metni</h2>
+  <p>Bu metin, 6698 sayılı Kişisel Verilerin Korunması Kanunu'nun (KVKK) 10. maddesi uyarınca Anı Haritası'nı (tennuri.github.io/ani-haritasi) kullananları bilgilendirmek için hazırlanmıştır.</p>
+
+  <h3>Veri sorumlusu</h3>
+  <p>Anı Haritası, bireysel ve kâr amacı gütmeyen bir projedir. Veri sorumlusu proje sahibidir. Başvuru ve sorular için <a href="https://github.com/tennuri/ani-haritasi/issues">GitHub üzerinden</a> ulaşabilirsin.</p>
+
+  <h3>Hangi veriler, hangi amaçla işlenir</h3>
+  <div class="scroll"><table>
+    <tr><th>Veri</th><th>Amaç</th><th>Saklama</th></tr>
+    <tr><td>Anı yazısı, tarihi, his etiketi, yer tarifi, il</td><td>Anıyı haritada yayınlamak</td><td>Anı silinene kadar</td></tr>
+    <tr><td>Pin konumu (yaklaşık 10 metreye yuvarlanır)</td><td>Anıyı haritada göstermek</td><td>Anı silinene kadar</td></tr>
+    <tr><td>Fotoğraf (küçültülmüş, konum ve cihaz bilgisi silinmiş)</td><td>Anıyla birlikte göstermek</td><td>Anı silinene kadar</td></tr>
+    <tr><td>IP adresinin tuzlanmış özeti (hash)</td><td>Hız sınırı, aynı kişinin aynı anıyı tekrar bildirmesini önlemek</td><td>En fazla 24 saat</td></tr>
+    <tr><td>Tema tercihi</td><td>Açık/koyu görünümü hatırlamak (yalnızca senin tarayıcında)</td><td>Sen silene kadar</td></tr>
+  </table></div>
+  <p>İsim, e-posta, telefon, hesap ya da çerez tabanlı takip kullanılmaz. Anı yazısına telefon numarası, e-posta ya da kimlik numarası benzeri bir şey yazılırsa anı sistem tarafından reddedilir. Kullanıcıların yazdıklarında kendileri ya da başkaları hakkında kişisel veri bulunabilir; bu yüzden aşağıdaki kurallar bunu yasaklar ve bu tür içerik bildirildiğinde kaldırılır.</p>
+
+  <h3>Hukuki sebep</h3>
+  <p>Anılar, onları paylaşan kişinin kendi isteğiyle herkese açık hâle getirdiği içeriklerdir (KVKK md. 5/2-d). Kötüye kullanımı önlemeye yönelik IP özeti, hizmetin güvenliği için veri sorumlusunun meşru menfaatine dayanır (KVKK md. 5/2-f).</p>
+
+  <h3>Kimlere aktarılır</h3>
+  <p>Sitenin çalışması için aşağıdaki hizmet sağlayıcılar kullanılır. Bunların sunucuları yurt dışındadır; bu nedenle veriler, KVKK md. 9 kapsamında yurt dışına aktarılmış olur.</p>
+  <ul>
+    <li><b>Supabase</b> (veritabanı, sunucu Almanya/Frankfurt): anılar ve IP özetleri burada saklanır.</li>
+    <li><b>Cloudflare Turnstile</b> (robot kontrolü): anı bırakırken tarayıcı ve IP bilgilerin Cloudflare tarafından robot olup olmadığını anlamak için işlenir.</li>
+    <li><b>GitHub Pages</b> (sitenin barındırılması), <b>OpenStreetMap</b> (harita karoları ve adres arama), <b>Google Fonts</b> ve <b>unpkg</b> (yazı tipi ve harita kütüphanesi): sayfayı açtığında tarayıcın bu sunuculara bağlanır, bu yüzden IP adresini görebilirler.</li>
+  </ul>
+  <p>Bunların dışında veriler kimseyle paylaşılmaz, satılmaz, reklam için kullanılmaz. Yasal bir zorunluluk olursa yetkili mercilerle yalnızca elde olan veriler (anının kendisi) paylaşılabilir; anıyı kimin bıraktığı bilgisi sistemde yoktur.</p>
+
+  <h3>Hakların</h3>
+  <p>KVKK md. 11 uyarınca verilerinin işlenip işlenmediğini öğrenme, düzeltilmesini ya da silinmesini isteme gibi hakların vardır. Anılar kimseyle eşleştirilmediği için bir anının sana ait olduğunu sistem üzerinden doğrulayamayız; silinmesini istediğin bir anı varsa onu <b>Bildir</b> butonuyla işaretleyebilir ya da tarihini ve yerini belirterek <a href="https://github.com/tennuri/ani-haritasi/issues">bize yazabilirsin</a>.</p>
+
+  <h2 id="kurallar">Kullanım koşulları</h2>
+  <p>Anı bırakan herkes aşağıdaki kuralları kabul etmiş sayılır.</p>
+  <h3>Yazılmaması ve paylaşılmaması gerekenler</h3>
+  <ul>
+    <li>Başkalarını tanıtan bilgiler: tam isim, telefon, adres, plaka, okul/iş yeri ile birlikte isim, tanınabilir yüz fotoğrafı.</li>
+    <li>Birini hedef gösteren, taciz eden, tehdit eden ya da aşağılayan içerik.</li>
+    <li>Nefret söylemi; din, dil, ırk, etnik köken, cinsiyet, cinsel yönelim ya da engellilik üzerinden ayrımcılık.</li>
+    <li>Cinsel içerik, çocukları içeren her türlü uygunsuz içerik, şiddet görüntüleri.</li>
+    <li>Suç teşkil eden, suçu öven ya da suça teşvik eden içerik.</li>
+    <li>Başkasına ait olup paylaşma hakkın olmayan fotoğraflar.</li>
+    <li>Reklam, spam ya da sitenin amacı dışında kalan içerik.</li>
+  </ul>
+  <h3>Sorumluluk</h3>
+  <ul>
+    <li>Bıraktığın anının içeriğinden sen sorumlusun. Site, kullanıcıların yazdıklarını önceden denetlemez; bildirilen ya da fark edilen kural dışı içerik kaldırılır.</li>
+    <li>Site herhangi bir anıyı gerekçe göstermeden gizleyebilir ya da silebilir.</li>
+    <li>Hizmet olduğu gibi sunulur; kesintisiz çalışacağı ya da verilerin kalıcı olarak saklanacağı garanti edilmez.</li>
+    <li>Bu koşullar zaman zaman güncellenebilir; güncel sürüm her zaman bu sayfadadır.</li>
+  </ul>
+
+  <h2 id="kaldirma">İçerik kaldırma ve şikâyet</h2>
+  <p>Bir anı seni ya da başkasını tanıtıyorsa veya kurallara aykırıysa, kartın altındaki <b>Bildir</b> butonunu kullan. Birden fazla bildirim alan anılar otomatik olarak gizlenir ve incelenir. Acil durumlarda ya da kişilik haklarının ihlali iddiasıyla (5651 sayılı Kanun kapsamında) <a href="https://github.com/tennuri/ani-haritasi/issues">bize yazabilirsin</a>; anının tarihini, yerini ve ilk birkaç kelimesini belirtmen yeterli. Kişisel bilgilerini başvuruda paylaşmana gerek yok.</p>
+</main>
+</body>
+</html>
